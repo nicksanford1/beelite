@@ -15,17 +15,17 @@ exactly where we are and what to do next.
 short · one source of truth per concern (see `CLAUDE.md`) · the whole product = the end-to-end flow
 at the top of `docs/architecture.md`.
 
-**Latest commit:** `a664410`
+**Latest commit:** `5af3acd`
 
 ---
 
 ## Where we are
-**Step 2 of 8 — Prisma schema (written, not yet validated/pushed).**
+**Step 1 done ✅ (Sheet bid engine built + verified $15,205.54). Step 2 — Prisma schema next.**
 
 | # | Step | State | Needs |
 |---|---|---|---|
-| 1 | Google Sheet template (from `claude/sheet-template.md` v4) | ☐ | your Google account |
-| 2 | Prisma schema matching the sheet | ◑ written | Supabase |
+| 1 | Google Sheet template (from `claude/sheet-template.md` v4) | ☑ done — built via `scripts/build-sheet-template.ts`, verified | — |
+| 2 | Prisma schema matching the sheet | ◑ written, not validated/pushed | Supabase |
 | 3 | Project creation + Sheet copy | ☐ | Google service account |
 | 4 | PDF upload + page tagging | ☐ | — |
 | 5 | AI finish extraction | ☐ | Anthropic key |
@@ -36,19 +36,18 @@ at the top of `docs/architecture.md`.
 ---
 
 ## Claude proposes next
-Codex review (2026-06-16) addressed in commit `a664410` (schema defaults/uniqueness, doc dedup).
+Step 1 done — Sheet bid engine built + verified ($15,205.54), owned by you, populated by the
+service account. Template id: `1WNZncwQZqEa7p64rLq6GVlMm2DUhMeCLw6H3QoVao3U`.
 
-1. **You (one-time Google setup):** create a Google Cloud service account + key so **Claude can build
-   the Sheet template via the Sheets API** (script in repo, reproducible) instead of you building by hand.
-   Put the key JSON in `.env` as `GOOGLE_SERVICE_ACCOUNT_JSON`. (Steps: enable Sheets+Drive API, create
-   service account, download JSON.)
-2. **Claude:** write `scripts/build-sheet-template.ts` from `claude/sheet-template.md` v4, run it to
-   create the master template + dummy data, confirm **Bid Total $15,205.54**.
-3. **You:** create a Supabase project (DB push) + have the Anthropic key handy.
-4. **Claude:** validate schema (`prisma generate`) + push; then step 3 — project creation + Sheet copy.
+1. **You:** open the Sheet, sanity-check it, try editing a `Rates` override to see the total move.
+2. **You:** create a Supabase project (free) for the database; have the Anthropic key handy.
+3. **Claude:** validate the schema (`prisma generate`) + push to Supabase (finishes step 2).
+4. **Claude:** step 3 — project creation + Sheet copy.
 
-Rationale: scripting the Sheet (vs hand-building) makes it reproducible/versioned and reuses the same
-service-account creds the app needs anyway to copy the template per project.
+⚠ **Known issue for the sync step (3 & 8):** the same service-account storage limit means the app
+**can't *copy* the template** on personal Gmail either. The per-project Sheet creation will need a
+different auth path — OAuth (user connects their Google) or a Workspace Shared Drive. Decide before
+building step 3. (Populating a pre-shared sheet works fine; *creating/copying* is the blocked part.)
 
 ## Review focus (for Codex, this round)
 - `prisma/schema.prisma` vs `claude/sheet-template.md` v4 — field names/types match exactly?
