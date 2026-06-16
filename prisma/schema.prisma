@@ -1,0 +1,159 @@
+// Beelite — database schema. Mirrors the locked fields in claude/sheet-template.md.
+// The DB stores INPUTS + review state; the Google Sheet computes the bid (no totals here).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Company / reusable catalog ───────────────────────────────
+model Company {
+  id       String              @id @default(cuid())
+  name     String
+  finishes FinishLibraryItem[]
+  rates    RateCatalogEntry[]
+  scopeTpl ScopeTemplateItem[]
+  projects Project[]
+}
+
+model FinishLibraryItem {
+  id          String            @id @default(cuid())
+  companyId   String
+  company     Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code        String // "LVT-1"
+  type        String
+  description String
+  unit        String // SF | LF | EA | SY
+  category    String // floor | base | transition | wall | other
+  rate        RateCatalogEntry?
+
+  @@unique([companyId, code])
+}
+
+model RateCatalogEntry {
+  id            String            @id @default(cuid())
+  companyId     String
+  company       Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  finishId      String            @unique
+  finish        FinishLibraryItem @relation(fields: [finishId], references: [id], onDelete: Cascade)
+  materialCost  Float
+  installAmount Float? // $/unit if unit_rate; lump sum if sub_quote/turnkey
+  installMode   String // unit_rate | sub_quote | pending
+  wastePct      Float
+  cartonSize    Float?
+  furnishType   String            @default("furnish_and_sub") // furnish_and_sub | turnkey_sub
+}
+
+model ScopeTemplateItem {
+  id          String  @id @default(cuid())
+  companyId   String
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  label       String
+  defaultMode String // included | excluded | pending
+}
+
+// ── Project / per bid ────────────────────────────────────────
+model Project {
+  id         String             @id @default(cuid())
+  companyId  String
+  company    Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name       String
+  bidDate    DateTime?
+  gc         String?
+  location   String?
+  notes      String?
+  status     String             @default("draft") // label only
+  sheetId    String? // Google Sheet id (after template copy)
+  documents  Document[]
+  finishes   ProjectFinish[]
+  scopeItems ProjectScopeItem[]
+  takeoff    TakeoffLine[]
+  settings   EstimateSettings?
+}
+
+model Document {
+  id        String      @id @default(cuid())
+  projectId String
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fileUrl   String
+  pages     PlanSheet[]
+}
+
+model PlanSheet {
+  id          String      @id @default(cuid())
+  documentId  String
+  document    Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  pageNumber  Int
+  sheetNumber String? // "A601"
+  sheetTitle  String? // "FINISH SCHEDULE"
+  sheetType   String // finish_schedule | finish_plan | floor_plan | specs | other
+  extraction  Extraction?
+}
+
+model ProjectFinish {
+  id            String  @id @default(cuid())
+  projectId     String
+  project       Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  code          String
+  type          String
+  description   String
+  unit          String
+  category      String
+  inScope       Boolean @default(true)
+  materialCost  Float
+  installAmount Float?
+  installMode   String
+  wastePct      Float
+  cartonSize    Float?
+  furnishType   String  @default("furnish_and_sub")
+}
+
+model ProjectScopeItem {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  label     String
+  mode      String // included | excluded | pending
+  allowance Float?
+}
+
+model TakeoffLine {
+  id         String  @id @default(cuid())
+  projectId  String
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sheet      String?
+  area       String
+  finishCode String
+  qty        Float
+  unit       String
+  source     String // manual | ai
+  status     String // draft | needs_review | approved | excluded
+}
+
+model EstimateSettings {
+  id           String  @id @default(cuid())
+  projectId    String  @unique
+  project      Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pricingMode  String // markup | margin
+  pct          Float // material markup/margin
+  subMarkupPct Float // subbed-labor markup (default = pct)
+  taxPct       Float?
+  taxMode      String  @default("total_sell_plus_freight") // material_cost_only | material_sell_only | total_sell_plus_freight
+  freight      Float?
+}
+
+// ── Correction log (the training/eval asset — build day 1) ───
+model Extraction {
+  id          String   @id @default(cuid())
+  planSheetId String   @unique
+  planSheet   PlanSheet @relation(fields: [planSheetId], references: [id], onDelete: Cascade)
+  model       String // "claude-sonnet-4-6"
+  rawOutput   Json // what the model returned
+  corrected   Json? // what the human confirmed/fixed
+  confidence  Json
+  createdAt   DateTime @default(now())
+}
