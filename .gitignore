@@ -16,3 +16,6 @@ samples/
 
 # local sample previews
 public/samples/
+
+# local SAM.gov data dump (not source)
+data/
