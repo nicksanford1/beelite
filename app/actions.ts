@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getOrCreateDefaultCompany } from "@/lib/company";
 import { uploadPlan, downloadPlan } from "@/lib/storage";
 import { extractFinishSchedule, type ExtractedFinish } from "@/lib/anthropic";
+import { scanPdf } from "@/lib/pdf";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -43,7 +44,28 @@ export async function uploadDocument(projectId: string, formData: FormData) {
   const path = `${projectId}/${Date.now()}-${safeName}`;
   await uploadPlan(path, bytes, file.type || "application/pdf");
 
-  await db.document.create({ data: { projectId, fileUrl: path } });
+  const doc = await db.document.create({ data: { projectId, fileUrl: path } });
+
+  // scan every page → one PlanSheet per page (suggested tag + signals); human confirms later
+  try {
+    const scans = await scanPdf(bytes);
+    if (scans.length) {
+      await db.planSheet.createMany({
+        data: scans.map((s) => ({
+          documentId: doc.id,
+          pageNumber: s.pageNumber,
+          sheetNumber: s.sheetNumber,
+          sheetTitle: s.sheetTitle,
+          suggestedSheetType: s.suggestedSheetType,
+          scanScore: s.score,
+          scanSignals: s.signals as object,
+        })),
+      });
+    }
+  } catch (e) {
+    console.error("page scan failed:", e);
+  }
+
   revalidatePath(`/projects/${projectId}`);
 }
 

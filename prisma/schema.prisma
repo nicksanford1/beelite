@@ -85,14 +85,19 @@ model Document {
 }
 
 model PlanSheet {
-  id          String      @id @default(cuid())
-  documentId  String
-  document    Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  pageNumber  Int
-  sheetNumber String? // "A601"
-  sheetTitle  String? // "FINISH SCHEDULE"
-  sheetType   String // finish_schedule | finish_plan | floor_plan | specs | other
-  extraction  Extraction?
+  id                 String      @id @default(cuid())
+  documentId         String
+  document           Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  pageNumber         Int
+  sheetNumber        String? // "A601"
+  sheetTitle         String? // "FINISH SCHEDULE"
+  sheetType          String      @default("untagged") // human-confirmed: untagged | finish_schedule | finish_plan | floor_plan | specs | ignore
+  suggestedSheetType String? // scanner's guess (same vocabulary)
+  scanScore          Float? // 0..1 finish-schedule likelihood
+  scanSignals        Json? // per-page signal breakdown (debuggable)
+  extraction         Extraction?
+
+  @@unique([documentId, pageNumber])
 }
 
 model ProjectFinish {
