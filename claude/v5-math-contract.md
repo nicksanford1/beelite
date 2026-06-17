@@ -1,4 +1,4 @@
-# Bid Engine v5 — Math Contract (proposed)
+d# Bid Engine v5 — Math Contract (proposed)
 
 The precise math + field changes for the cost→profit→price redesign. Written **before** code so the
 Sheet (`claude/sheet-template.md`), the app mirror (`lib/estimate.ts`), and the schema all implement
