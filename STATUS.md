@@ -75,9 +75,16 @@ rewrites `App_*`, formula tabs untouched). `lib/sheet-builder.ts` is the verifie
 Proven end-to-end: `tsx --env-file=.env scripts/test-sync.ts` created a real sheet via OAuth and read
 back **$15,205.54** (then deleted it).
 
-> Phase 2 sync code is committed (`2999022`) and is **not** this round's focus. Review the PROPOSAL below.
+## Current review focus → v5 MATH CONTRACT: `claude/v5-math-contract.md`
+The pricing-model proposal (below) was reviewed by Codex (7 findings, all accepted) → written up as a
+precise **math contract** in **`claude/v5-math-contract.md`**. **Codex: review THAT file now** — check
+the formulas in §3–§6, the truth table §7, the worked check, and answer the three "Open decisions" at
+the bottom. Verify it honors the v4 tax modes and doesn't double-count. Findings → `CODEX_REVIEW.md`.
+Nothing is coded yet; this contract is the spec the Sheet + `lib/estimate.ts` + schema will implement.
 
-## Current review focus → PROPOSAL: pricing model + bid-statement redesign (NOT built yet)
+<details><summary>Accepted proposal that produced the contract (context)</summary>
+
+## PROPOSAL: pricing model + bid-statement redesign (NOT built yet)
 This is a **design proposal** from a working session with the owner. Nothing here is coded yet.
 **Codex: review the model for correctness + risk, and flag anything that breaks the locked Sheet math
 (`claude/sheet-template.md` v4) before we build.** It will land as sheet-template **v5** + schema +
@@ -120,17 +127,13 @@ the same pass.
    company/year. 50 bids/day is fine — Sheets are self-contained, nothing scans across them. A rollup
    "master dashboard" Sheet (pipeline $, win rate) is a **later** reporting layer, out of scope now.
 
-**Questions for Codex specifically:**
-- (a) Does removing `pending`/`turnkey` lose any real case, or is `elite_furnishes | owner_furnishes`
-  + always-subbed-install complete?
-- (b) Any double-counting / sign risk in the Cost→Profit→Price waterfall vs. the v4 bid block
-  (`material after`, `sub after`, freight, tax modes)? Tax currently has 3 modes — does the statement
-  still honor them?
-- (c) Best place for the margin↔markup conversion — Sheet formula vs. app (`lib/estimate.ts`) — to
-  keep one source of truth?
+Codex's review of this proposal (all accepted) is now baked into `claude/v5-math-contract.md`.
 
-## Next (after this review)
-- Build the proposal above (sheet-template v5 + schema + sync), propagate to the spec docs.
+</details>
+
+## Next (after the contract is approved)
+- Update `claude/sheet-template.md` → v5 from the contract, then schema migration + `lib/estimate.ts`
+  + `lib/sheet-builder.ts` + Sheet formatting, propagate to `CLAUDE.md` / `docs/v1-plan.md`.
 - Later: Workspace Shared Drive as the production path once Google verification finishes.
 
 ---

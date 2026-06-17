@@ -1,57 +1,67 @@
-# Codex Review — Page-Targeting Implementation
+# Codex Review — Pricing Model + Bid Statement Proposal
 
 Reviewed `STATUS.md` against latest committed code:
-`1dfbfd0`, `a25c6bc`, `ca95a28`, `ad0e02b`, `52bf141`, `6c05a1a`, `505d50b`, `068a968`.
+`4ce25ba`, `84273ae`, `2999022`, `caf684c`, `a465d53`, `f1db7be`, `1dfbfd0`, `a25c6bc`.
 Static review only; no build/tests run.
 
 ## Findings
 
-1. **Corrections can be written to the wrong page, or not written at all.**
-   `readSchedule` stores the extraction on the first tagged schedule page (`app/actions.ts:96`-`102`),
-   but `confirmFinishes` later looks up the last `finish_schedule` page by `id` and updates that page's
-   extraction (`app/actions.ts:110`-`117`). With multiple tagged schedule pages, this often will not be
-   the same `PlanSheet`, so the update fails and is swallowed by `.catch(() => {})`. Result: the bid
-   can save confirmed finishes while the correction log loses the human correction. Also, if tags change
-   and a new extraction is created on a different page, old extractions are not cleared, and `/finishes`
-   picks the lowest page with any extraction (`app/projects/[id]/finishes/page.tsx:16`-`20`), which can
-   show stale results.
+1. **The proposed Elite pricing model is coherent, but keep a non-pricing "needs rate" state.**
+   Removing `installMode="pending"` and `furnishType="turnkey_sub"` as pricing concepts makes sense
+   for the owner's workflow: Elite buys material unless `owner_furnishes`, and install is always
+   subcontracted at a per-unit standard rate. The gap is unmatched/new finishes. Today extracted
+   finishes are created with zero rates and `installMode="pending"` (`app/actions.ts:138`-`149`,
+   `prisma/schema.prisma:112`-`118`). If `pending` goes away, v5 still needs a warning/status for
+   "library did not seed a usable material/install rate" so the app cannot silently bid $0.
 
-2. **Multiple uploaded PDFs can route the user to the wrong document.**
-   The bid page lists documents newest-first, but every document's Pages button links to the same
-   `/projects/[id]/pages` URL (`app/projects/[id]/page.tsx:22`, `app/projects/[id]/page.tsx:79`-`80`).
-   The Pages screen then orders documents oldest-first and uses `project.documents[0]`
-   (`app/projects/[id]/pages/page.tsx:14`-`18`). The Finishes screen also uses `project.documents[0]`
-   for `readSchedule`, while counting tagged pages project-wide (`app/projects/[id]/finishes/page.tsx:25`-`28`,
-   `app/projects/[id]/finishes/page.tsx:51`). On a project with more than one uploaded plan, the user
-   can tag one document but read another, or click Pages on the newest upload and see the oldest one.
+2. **Do not model "real quote arrived" as a different install mode.**
+   The proposal is stronger if install stays one formula: `approvedQty * effectiveInstallRate`.
+   If a real sub quote arrives later, represent it as a per-bid override rate or an optional quoted
+   total explicitly converted to an effective rate. Keeping `sub_quote` as a lump-sum branch would
+   preserve v4 complexity and make line profit/margin harder to explain.
 
-3. **Suggested tags are still being promoted to confirmed tags too easily.**
-   `PagesTagger` initializes the dropdown state from `suggestedSheetType` whenever `sheetType` is
-   `untagged` (`components/pages-tagger.tsx:21`-`23`), and both Save and Read persist every dropdown
-   value (`components/pages-tagger.tsx:28`-`35`). That means simply opening the screen and clicking Save
-   or Read turns scanner guesses into human-confirmed tags, and untagged non-suggestions become `ignore`.
-   The schema separates suggested vs confirmed state, but the UI collapses that distinction on first save.
+3. **The Cost -> Profit -> Price waterfall must define profit before freight and tax.**
+   In v4, tax can be based on material cost, material sell, or total sell plus freight
+   (`claude/sheet-template.md`, bid block R13; mirrored in `lib/estimate.ts`). For v5, "Elite profit"
+   should be:
+   `materialSell + installSell - materialCost - installCost`.
+   It should not include freight unless Elite marks freight as profitable, and it should never include
+   tax. Then bid price is `materialSell + installSell + freight + tax`. This avoids double counting
+   and keeps the three existing tax modes valid.
 
-4. **Preview rendering will be expensive on large plan sets.**
-   `/api/preview` downloads the full PDF from storage and renders the requested page on every uncached
-   preview request (`app/api/preview/route.ts:17`-`21`). Browser caching helps after the first render of
-   the same page, but browsing many pages of a 108-page set still means repeated full-PDF downloads and
-   renders. Fine for a demo, but this should be cached or pre-rendered for regular use.
+4. **One displayed markup/margin is a blended result, not a single input.**
+   Because material and install can have different profit percentages (`pct` and `subMarkupPct` today),
+   Summary can show a total profit $, blended markup %, and blended margin %, but those blended
+   percentages must be calculated from totals:
+   `blendedMarkup = totalProfit / totalCost`;
+   `blendedMargin = totalProfit / (materialSell + installSell)`.
+   Do not imply that one headline percentage was applied uniformly unless material and install rates
+   actually share the same percentage.
 
-5. **Upload-time scanning is synchronous and has no recovery path beyond re-upload.**
-   `uploadDocument` uploads the PDF, creates the document, then scans every page inside the server action
-   (`app/actions.ts:45`-`67`). If a 108-page scan is slow, upload feels stuck; if scanning fails, the
-   document remains with no pages and the UI tells the user to re-upload. A manual "rescan" action or
-   background scan state would make this safer.
+5. **Rename the percentage fields or the UI will stay confusing.**
+   Current code stores `pricingMode`, `pct`, and `subMarkupPct` (`prisma/schema.prisma:145`-`153`) and
+   the UI labels one field "Sub markup %" even when `pricingMode="margin"` (`app/projects/[id]/estimate/page.tsx`).
+   If owner-facing v5 defaults to target margin, keeping `subMarkupPct` as the schema/API name is a
+   footgun. Use neutral names such as `materialProfitPct` / `installProfitPct` plus `profitPctMode`,
+   or be very explicit that the same field stores either markup or margin depending on mode.
 
-6. **The heuristic is a good start but still misses real formats.**
-   `FINISH_CODE` only matches one trailing digit (`lib/pdf.ts:12`), so codes like `LVT-10`, `CPT-12`,
-   or `RB-01` will not count toward density. The status note that PJHS flagged none also suggests spec
-   sections need stronger signals than schedule-title detection alone.
+6. **The company rate library needs an explicit matching/fallback policy.**
+   `FinishLibraryItem` and `RateCatalogEntry` exist, but `ProjectFinish` has no link back to the
+   library and confirm/save flows do not seed from the catalog yet. Before building v5, define how an
+   extracted finish maps to a default rate: exact company+code match first, then optional type/category
+   fallback, then "needs rate" warning. Also decide whether a later library update should affect
+   existing bid defaults on re-sync or only new bids.
+
+7. **The Sheet should remain the canonical calculator, with the app mirroring it under test.**
+   Put the margin <-> markup conversion formulas in the Sheet because the Sheet is the bid engine and
+   estimator-facing artifact. The app should mirror those formulas in `lib/estimate.ts` for preview,
+   and the test-sync script should keep reading back the known total/profit cells from a real Sheet.
+   Avoid inventing one formula in the app and a similar-but-not-identical formula in Sheets.
 
 ## Recommended Next Step
 
-Fix the extraction/document ownership model before moving to Sheet sync: make Pages/Finishes operate on
-an explicit `documentId`, store or identify a single current extraction for the tagged-page set, update
-that exact extraction during `confirmFinishes`, and clear or supersede stale extractions when tags change
-or extraction reruns. After that, tune tag confirmation and preview/scan performance.
+Write the v5 math contract first before coding: define the new hidden fields, rename/replace
+`installMode` and `furnishType`, specify library seeding and "needs rate" warnings, and add a small
+truth table for `elite_furnishes`, `owner_furnishes`, each tax mode, and markup-vs-margin conversion.
+Once that table is stable, update `claude/sheet-template.md`, then implement schema/app/sheet-builder
+changes against that contract.
