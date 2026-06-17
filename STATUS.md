@@ -20,15 +20,15 @@ at the top of `docs/architecture.md`.
 ---
 
 ## Where we are
-**Steps 1–4 (upload) done ✅. Next: page tagging + AI extraction (the wow).**
+**AI extraction proven on a real plan ✅ (the wow works). Next: wire it into the app UI.**
 
 | # | Step | State | Needs |
 |---|---|---|---|
 | 1 | Google Sheet template (from `claude/sheet-template.md` v4) | ☑ done — built + verified $15,205.54 | — |
 | 2 | Prisma schema matching the sheet | ☑ done — pushed to Supabase (session pooler) | — |
 | 3 | Project creation (+ Sheet copy*) | ☑ done — home ledger + `/projects/new` form (design system). *copy deferred | — |
-| 4 | PDF upload + page tagging | ◑ upload done (detail page → Supabase Storage); page tagging needs PDF parsing (with step 5) | — |
-| 5 | AI finish extraction | ☐ | Anthropic key + sample plan PDF |
+| 4 | PDF upload + page tagging | ◑ upload done; page tagging still TODO | — |
+| 5 | AI finish extraction | ◑ **core proven** (`lib/anthropic.ts`, opus-4-8, structured output; verified on samples/midlands-A701.pdf → 9 finishes, ~$0.06/page). Not yet wired into the app/UI or correction log | — |
 | 6 | Confirm finishes + generate `App_Rates` | ☐ | — |
 | 7 | Manual takeoff table | ☐ | — |
 | 8 | Sync button → write `App_*` tabs | ☐ | Google service account |
@@ -36,14 +36,17 @@ at the top of `docs/architecture.md`.
 ---
 
 ## Claude proposes next
-Steps 1–4(upload) done. App: creates/lists bids, project detail page, uploads plan PDFs to
-Supabase Storage. Blocked only on inputs now:
+Extraction works in a script ($0.06/page, opus-4-8, structured output). Now make it a product feature:
 
-1. **You:** get an **Anthropic API key** → `.env` as `ANTHROPIC_API_KEY`, and a **sample
-   commercial flooring PDF** with a finish schedule (sourcing options discussed in chat).
-2. **Claude:** **PDF parsing + page tagging** (pdfjs: render page → image + text) and **AI finish
-   extraction** (steps 4-tail + 5) — read the finish schedule → finishes table. **The wow.**
-3. **Claude:** confirm finishes → `ProjectFinish` + seed `App_Rates` (step 6).
+1. **Claude:** wire extraction into the app — a "Read schedule" action on a tagged PDF →
+   `extractFinishSchedule` → review table → confirm/edit → save `ProjectFinish` + log the
+   raw vs corrected output in the `Extraction` table (the eval/training asset).
+2. **Claude:** page tagging (mark which uploaded page is the finish schedule) so extraction
+   targets the right page in multi-page sets.
+3. **Claude:** seed `App_Rates` from confirmed finishes (step 6), then takeoff (7) + sync (8).
+
+Note: PDF sent to Claude *natively* (no pre-extract); single structured call (not an agent),
+per Anthropic guidance.
 
 **Deferred — Sheet copy** (`*` on step 3): service account can't create/copy sheets on personal
 Gmail. Needs OAuth or Workspace Shared Drive, or reuse one pre-shared sheet for the demo. Decide
