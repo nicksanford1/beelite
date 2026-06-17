@@ -31,33 +31,52 @@ function PageCanvas({ pdf, pageNumber, zoom }: { pdf: any; pageNumber: number; z
     if (!pdf) return;
     const el = wrapRef.current;
     if (!el) return;
-    let started = false;
+    let rendered = false;
+    let busy = false;
+
+    const render = async () => {
+      if (rendered || busy) return;
+      busy = true;
+      try {
+        setState("rendering");
+        const page = await pdf.getPage(pageNumber);
+        const containerWidth = el.clientWidth || 1000;
+        const base = page.getViewport({ scale: 1 });
+        // Oversample ~2.4x display width so pinch/browser zoom stays crisp (cap to bound memory).
+        const targetWidth = Math.min(containerWidth * 2.4, 3400);
+        const scale = Math.max(0.4, Math.min(targetWidth / base.width, 3.2));
+        const viewport = page.getViewport({ scale });
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        rendered = true;
+        setState("done");
+      } catch {
+        setState("error");
+      } finally {
+        busy = false;
+      }
+    };
+
+    const free = () => {
+      if (!rendered) return;
+      const c = canvasRef.current;
+      if (c) {
+        c.width = 0;
+        c.height = 0;
+      }
+      rendered = false;
+      setState("idle");
+    };
+
+    // Render pages near the viewport; free the ones that scroll far away so big sets stay light.
     const io = new IntersectionObserver(
-      async (entries) => {
-        if (!entries[0].isIntersecting || started) return;
-        started = true;
-        io.disconnect();
-        try {
-          setState("rendering");
-          const page = await pdf.getPage(pageNumber);
-          const dpr = Math.min(window.devicePixelRatio || 1, 2);
-          const containerWidth = el.clientWidth || 1000;
-          const base = page.getViewport({ scale: 1 });
-          const scale = Math.max(0.3, Math.min((containerWidth * dpr) / base.width, 3));
-          const viewport = page.getViewport({ scale });
-          const canvas = canvasRef.current;
-          if (!canvas) return;
-          canvas.width = Math.ceil(viewport.width);
-          canvas.height = Math.ceil(viewport.height);
-          const ctx = canvas.getContext("2d");
-          if (!ctx) return;
-          await page.render({ canvasContext: ctx, viewport }).promise;
-          setState("done");
-        } catch {
-          setState("error");
-        }
-      },
-      { rootMargin: "1200px 0px" }
+      (entries) => (entries[0].isIntersecting ? render() : free()),
+      { rootMargin: "1400px 0px" }
     );
     io.observe(el);
     return () => io.disconnect();
