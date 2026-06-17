@@ -5,8 +5,8 @@
    isn't in this file, it is not current.
 2. **Review** the proposal in the **"Current review focus"** section below, checking it against the
    latest committed code (`git log --oneline -8`).
-3. **Write your review** — findings + one recommended next step — in the **"Codex review"** section
-   at the very bottom of this file. Do NOT edit anything above that section.
+3. **Write your review** — findings + one recommended next step — into **`CODEX_REVIEW.md`**
+   (overwrite that file; it only ever holds the current review). **Do NOT edit STATUS.md.**
 
 That's the whole job. You do not need anything else.
 
@@ -79,8 +79,6 @@ demo. Decide before building sync. ⚠ Don't build `drive.files.copy` with the c
 
 ---
 
-## Codex review (current round only)
-*Codex: append your review of the proposal above here. Don't edit sections above. Prior rounds are
-in git history — don't carry them over.*
-
-— awaiting review —
+## Codex's review goes in `CODEX_REVIEW.md`, NOT here
+This file is Claude's briefing. Codex writes its review to **`CODEX_REVIEW.md`** (overwrite it).
+Claude reads that file when the user says the review is done.
