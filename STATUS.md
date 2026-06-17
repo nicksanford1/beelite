@@ -75,16 +75,62 @@ rewrites `App_*`, formula tabs untouched). `lib/sheet-builder.ts` is the verifie
 Proven end-to-end: `tsx --env-file=.env scripts/test-sync.ts` created a real sheet via OAuth and read
 back **$15,205.54** (then deleted it).
 
-## Current review focus → Phase 2 Google Sheet sync
-Review `lib/sheet-builder.ts`, `syncBidToSheet` in `app/actions.ts`, `components/sync-sheet-button.tsx`,
-and `lib/google.ts` against `git log --oneline -8`. Things worth a look: (a) single-row
-`GoogleConnection` model — fine for one-user demo, but is the "reuse if `sheetId` exists, else
-recreate" logic in `syncBidToSheet` sound (e.g. sheet trashed vs. permission revoked)? (b) `App_*`
-clear-then-write in `updateBidData` — any race / partial-write risk? (c) settings row-order coupling
-(`App_Settings` rows must match the named range + Estimate `$B$N` refs).
+> Phase 2 sync code is committed (`2999022`) and is **not** this round's focus. Review the PROPOSAL below.
 
-## Next (no review needed)
-- **Step 10 — visual polish** (last).
+## Current review focus → PROPOSAL: pricing model + bid-statement redesign (NOT built yet)
+This is a **design proposal** from a working session with the owner. Nothing here is coded yet.
+**Codex: review the model for correctness + risk, and flag anything that breaks the locked Sheet math
+(`claude/sheet-template.md` v4) before we build.** It will land as sheet-template **v5** + schema +
+`lib/estimate.ts` + `lib/sheet-builder.ts` changes, propagated to `CLAUDE.md` / `docs/v1-plan.md` in
+the same pass.
+
+**Context (how Elite actually prices, per the owner):**
+- Elite **never waits on a sub quote to bid.** They already know roughly what their subs charge, so
+  they bid a **standard install rate** up front and refine later if a real quote arrives.
+- The sub does **not** typically furnish material. Elite either **buys the material** (default) or the
+  **owner/GC furnishes** it (then Elite's material cost = $0 but it still prices the install).
+- The owner is **accounting-driven**: the bid must clearly separate **sub install fee (cost)** from
+  **Elite's profit (margin)**, and tie cost → profit → price transparently.
+
+**Proposed changes:**
+1. **Kill `installMode = "pending"` and `furnishType = "turnkey_sub"`** as workflow concepts — they
+   don't match Elite. Install is **always subbed at a per-unit rate** (overridable). Material furnish
+   collapses to two cases: `elite_furnishes` (default, Elite buys) | `owner_furnishes` (material $0).
+2. **Company rate library → seeds each new bid.** Tables already exist (`Company` → `RateCatalogEntry`,
+   `FinishLibraryItem`) but are **not wired into the bid flow**. Wire them so a new bid auto-fills
+   Elite's standard material + install rates = instant, never-wait pricing ("the ceiling"). Per-bid
+   override still wins (existing default/override/effective on the `Rates` tab).
+3. **Margin shown both ways.** Keep the two existing margins (material `pct`, install `subMarkupPct`).
+   Owner enters EITHER a **target margin** (% of price) OR a **markup** (% of cost); the Sheet shows
+   the other automatically. ⚠ These are NOT equal: 15% markup = 13% margin; 30% margin = 42.9% markup.
+   Default lens = target margin, seeded ~25–30% (not 15). Profit displayed as **$, markup %, margin %**.
+4. **Sheet redesign (the 4 visible tabs → v5):**
+   - **Summary → a bid statement / proposal page:** header (Elite, GC, date, location); a
+     **Cost → Profit → Price** waterfall (material cost+price, install cost+price, freight, job cost,
+     Elite profit $/markup%/margin%, tax, BID PRICE); included/excluded scope; assumptions. QA/warning
+     flags move to a side block, not the headline.
+   - **Estimate → working detail, per line:** material cost, **sub install fee**, line cost,
+     **line profit $**, line price. Real currency/percent formatting, bold totals, frozen header,
+     helper columns hidden.
+   - **Rates →** default/override/effective with override columns highlighted; defaults from the library.
+   - **Assumptions →** fold into Summary.
+   - Apply real formatting via the Sheets API (fonts, currency/percent, borders, header banner) at build.
+5. **Architecture (confirmed, unchanged):** one Sheet per bid; **the app is the master index** (home
+   screen lists every bid → link to its Sheet); optionally drop each Sheet in a Drive folder per
+   company/year. 50 bids/day is fine — Sheets are self-contained, nothing scans across them. A rollup
+   "master dashboard" Sheet (pipeline $, win rate) is a **later** reporting layer, out of scope now.
+
+**Questions for Codex specifically:**
+- (a) Does removing `pending`/`turnkey` lose any real case, or is `elite_furnishes | owner_furnishes`
+  + always-subbed-install complete?
+- (b) Any double-counting / sign risk in the Cost→Profit→Price waterfall vs. the v4 bid block
+  (`material after`, `sub after`, freight, tax modes)? Tax currently has 3 modes — does the statement
+  still honor them?
+- (c) Best place for the margin↔markup conversion — Sheet formula vs. app (`lib/estimate.ts`) — to
+  keep one source of truth?
+
+## Next (after this review)
+- Build the proposal above (sheet-template v5 + schema + sync), propagate to the spec docs.
 - Later: Workspace Shared Drive as the production path once Google verification finishes.
 
 ---
