@@ -57,14 +57,29 @@ from human-confirmed sheetType) → **Pages screen** (`/projects/[id]/pages`): l
 on-demand preview (`/api/preview`) → tag → **targeted extraction** on only tagged pages (`pdf-lib`
 split, one Claude call). Verified: gym 108pg renders previews; scan pre-flags pp 4/7/33.
 
-## Current review focus → none pending
-Full product loop works end-to-end on real multi-page plans. Next decisions (no review needed yet):
-- **Step 9 — Google Sheet sync.** Blocked on an auth choice: service account can't create/copy Sheets
-  on personal Gmail. Options: OAuth (user connects Google) · Workspace Shared Drive · reuse one
-  pre-shared Sheet for the demo. ⚠ Don't build `drive.files.copy` with the current service account.
+## Current review focus → the page-targeting IMPLEMENTATION (code review)
+You reviewed the *proposal* earlier; now review the *code that was built* (commits `ad0e02b`,
+`ca95a28`). Files:
+- `lib/pdf.ts` — `scorePage`/`scanPdf` (heuristic), `extractPages` (pdf-lib), `renderPage` (canvas).
+- `app/actions.ts` — `uploadDocument` (scans every page → PlanSheet/page), `saveSheetTags`,
+  `readSchedule` (targeted: split tagged pages → one Claude call; stores `sourcePages`).
+- `components/pages-tagger.tsx` + `app/projects/[id]/pages/page.tsx` — Pages screen.
+- `app/api/preview/route.ts` — on-demand page render.
+- `app/projects/[id]/finishes/page.tsx` — now finds the PlanSheet that has the extraction.
+
+**Scrutinize:** (a) multi-page schedule handling — `readSchedule` sends all tagged pages in one PDF
+and links the `Extraction` to the first page only; is per-page provenance / merge OK or should each
+page get its own Extraction? (b) the `/finishes` query (`extraction: { isNot: null }`) correctness;
+(c) tag pre-fill (dropdown defaults to suggestion) vs the "keep suggested separate from confirmed"
+intent; (d) preview route downloads the whole PDF per request — acceptable, or cache? (e) upload-time
+scan latency on a 108pg set inside a server action; (f) scanner robustness (PJHS flagged none — finishes
+in spec sections). Note: targeted extraction is wired + compiles but not yet run end-to-end (costs ~18¢).
+
+## Next (no review needed)
+- **Step 9 — Google Sheet sync.** Auth choice first: service account can't create/copy Sheets on
+  personal Gmail. Options: OAuth · Workspace Shared Drive · reuse one pre-shared Sheet for the demo.
+  ⚠ Don't build `drive.files.copy` with the current service account.
 - **Step 10 — visual polish** (last).
-- Possible hardening: run the real targeted extraction on the gym (3 pages) end-to-end; tune the
-  scanner on spec-heavy sets (PJHS flagged none — finishes live in spec sections).
 
 ---
 
