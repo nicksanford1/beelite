@@ -1,67 +1,69 @@
-# Codex Review — Pricing Model + Bid Statement Proposal
+# Codex Review — v5 Math Contract
 
-Reviewed `STATUS.md` against latest committed code:
-`4ce25ba`, `84273ae`, `2999022`, `caf684c`, `a465d53`, `f1db7be`, `1dfbfd0`, `a25c6bc`.
+Reviewed `STATUS.md` and `claude/v5-math-contract.md` against latest committed code:
+`0f0f7d5`, `4ce25ba`, `84273ae`, `2999022`, `caf684c`, `a465d53`, `f1db7be`, `1dfbfd0`.
 Static review only; no build/tests run.
 
 ## Findings
 
-1. **The proposed Elite pricing model is coherent, but keep a non-pricing "needs rate" state.**
-   Removing `installMode="pending"` and `furnishType="turnkey_sub"` as pricing concepts makes sense
-   for the owner's workflow: Elite buys material unless `owner_furnishes`, and install is always
-   subcontracted at a per-unit standard rate. The gap is unmatched/new finishes. Today extracted
-   finishes are created with zero rates and `installMode="pending"` (`app/actions.ts:138`-`149`,
-   `prisma/schema.prisma:112`-`118`). If `pending` goes away, v5 still needs a warning/status for
-   "library did not seed a usable material/install rate" so the app cannot silently bid $0.
+1. **The core v5 math is sound and preserves the v4 tax modes.**
+   The contract correctly separates cost, sell, profit, freight, and tax. `material_cost_only`,
+   `material_sell_only`, and `total_sell_plus_freight` still map cleanly to v4's tax bases, with
+   `jobMaterialCost`, `jobMaterialSell`, and `jobSell + freight`. I do not see double-counting as
+   written, as long as profit remains `jobSell - jobCost` and never includes freight or tax.
 
-2. **Do not model "real quote arrived" as a different install mode.**
-   The proposal is stronger if install stays one formula: `approvedQty * effectiveInstallRate`.
-   If a real sub quote arrives later, represent it as a per-bid override rate or an optional quoted
-   total explicitly converted to an effective rate. Keeping `sub_quote` as a lump-sum branch would
-   preserve v4 complexity and make line profit/margin harder to explain.
+2. **Add explicit guards for invalid margin percentages and divide-by-zero displays.**
+   `sell = cost / (1 - pct)` is correct for margin mode, but the contract should require app + Sheet
+   validation for `pct < 1` and preferably `pct >= 0`. Also guard `blendedMarkup = profit / jobCost`
+   and `blendedMargin = profit / jobSell` when cost/sell are zero, otherwise a bid with no approved
+   takeoff or all zero rates will show sheet errors instead of clean blanks/warnings.
 
-3. **The Cost -> Profit -> Price waterfall must define profit before freight and tax.**
-   In v4, tax can be based on material cost, material sell, or total sell plus freight
-   (`claude/sheet-template.md`, bid block R13; mirrored in `lib/estimate.ts`). For v5, "Elite profit"
-   should be:
-   `materialSell + installSell - materialCost - installCost`.
-   It should not include freight unless Elite marks freight as profitable, and it should never include
-   tax. Then bid price is `materialSell + installSell + freight + tax`. This avoids double counting
-   and keeps the three existing tax modes valid.
+3. **Clarify that `jobCost` excludes freight by design.**
+   The contract treats freight as pass-through at cost and excludes it from profit and blended
+   percentages. That is fine, but the Summary should label this carefully, for example "priced scope
+   cost" or "material + install cost", not just "job cost", unless the statement also shows a separate
+   "total cost incl. freight" line. Otherwise accounting users may expect freight to be included in
+   cost while markup/margin excludes it.
 
-4. **One displayed markup/margin is a blended result, not a single input.**
-   Because material and install can have different profit percentages (`pct` and `subMarkupPct` today),
-   Summary can show a total profit $, blended markup %, and blended margin %, but those blended
-   percentages must be calculated from totals:
-   `blendedMarkup = totalProfit / totalCost`;
-   `blendedMargin = totalProfit / (materialSell + installSell)`.
-   Do not imply that one headline percentage was applied uniformly unless material and install rates
-   actually share the same percentage.
+4. **`rateStatus` must be based on effective bid rates, not only seeded defaults.**
+   The contract says per-bid override wins, but also says `needs_rate` lines warn and block ready-to-send.
+   In v5, if the visible Rates override columns can fix a missing material/install rate, the warning
+   must clear from the effective values. Otherwise the Sheet may keep blocking a bid after the estimator
+   has entered valid overrides. Define `effectiveRateStatus` or warning formulas from effective material
+   and install rates.
 
-5. **Rename the percentage fields or the UI will stay confusing.**
-   Current code stores `pricingMode`, `pct`, and `subMarkupPct` (`prisma/schema.prisma:145`-`153`) and
-   the UI labels one field "Sub markup %" even when `pricingMode="margin"` (`app/projects/[id]/estimate/page.tsx`).
-   If owner-facing v5 defaults to target margin, keeping `subMarkupPct` as the schema/API name is a
-   footgun. Use neutral names such as `materialProfitPct` / `installProfitPct` plus `profitPctMode`,
-   or be very explicit that the same field stores either markup or margin depending on mode.
+5. **Keep the v4 known-answer test as a required parity check.**
+   The one-line worked check is correct: material sell `285 / 0.8 = 356.25`, install sell
+   `155 / 0.7 = 221.43`, profit `137.68`, blended margin about `23.8%`, blended markup about `31.3%`.
+   Add the v4 dummy bid as a v5 regression too: with `elite_furnishes`, markup mode, both profit pcts
+   at `0.15`, same freight/tax, the bid total should still be `$15,205.54`.
 
-6. **The company rate library needs an explicit matching/fallback policy.**
-   `FinishLibraryItem` and `RateCatalogEntry` exist, but `ProjectFinish` has no link back to the
-   library and confirm/save flows do not seed from the catalog yet. Before building v5, define how an
-   extracted finish maps to a default rate: exact company+code match first, then optional type/category
-   fallback, then "needs rate" warning. Also decide whether a later library update should affect
-   existing bid defaults on re-sync or only new bids.
+6. **Migration from v4 values needs one explicit rule.**
+   Current code/schema still have `installMode`, `installAmount`, and `furnishType`. Normal
+   `unit_rate + furnish_and_sub` rows migrate cleanly to `installRate + elite_furnishes`. Any existing
+   `pending`, `sub_quote`, or `turnkey_sub` rows cannot be losslessly mapped to "always per-unit
+   install" without a decision. For demo data this may be minor, but the contract should state the
+   migration behavior before schema work starts.
 
-7. **The Sheet should remain the canonical calculator, with the app mirroring it under test.**
-   Put the margin <-> markup conversion formulas in the Sheet because the Sheet is the bid engine and
-   estimator-facing artifact. The app should mirror those formulas in `lib/estimate.ts` for preview,
-   and the test-sync script should keep reading back the known total/profit cells from a real Sheet.
-   Avoid inventing one formula in the app and a similar-but-not-identical formula in Sheets.
+## Open Decisions
+
+1. **Freight markup:** OK to defer. Keep freight pass-through in v5. Do not include freight in profit
+   or blended markup/margin. If needed later, add an explicit `freightSell` or `freightProfitPct`; do
+   not hide it inside the existing material/install profit formulas.
+
+2. **Library fallback:** use exact-match-or-needs-rate for v1. Type/category fallback is useful as a
+   suggestion, but it is risky to auto-price a bid from a "similar" finish without human approval.
+   A safe v1 path is exact `(companyId, code)` seed first, otherwise `needs_rate`, with optional
+   suggested matches shown to the user.
+
+3. **Material pricing shape:** keep `materialUnitCost` as $/unit for v1. It preserves waste/carton
+   math and keeps material pricing parallel to takeoff quantities. If a lump material quote becomes
+   necessary later, add a deliberate `materialPricingMode = unit | lump`; do not overload the unit-cost
+   field.
 
 ## Recommended Next Step
 
-Write the v5 math contract first before coding: define the new hidden fields, rename/replace
-`installMode` and `furnishType`, specify library seeding and "needs rate" warnings, and add a small
-truth table for `elite_furnishes`, `owner_furnishes`, each tax mode, and markup-vs-margin conversion.
-Once that table is stable, update `claude/sheet-template.md`, then implement schema/app/sheet-builder
-changes against that contract.
+Revise `claude/v5-math-contract.md` once before implementation: add margin/zero guards, clarify
+freight labeling, define effective-rate warning behavior, add the `$15,205.54` v4 parity check, and
+state the v4 migration rule. After that, use the contract to update `sheet-template.md` v5, schema,
+`lib/estimate.ts`, and `lib/sheet-builder.ts` together.

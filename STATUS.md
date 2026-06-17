@@ -75,12 +75,11 @@ rewrites `App_*`, formula tabs untouched). `lib/sheet-builder.ts` is the verifie
 Proven end-to-end: `tsx --env-file=.env scripts/test-sync.ts` created a real sheet via OAuth and read
 back **$15,205.54** (then deleted it).
 
-## Current review focus → v5 MATH CONTRACT: `claude/v5-math-contract.md`
-The pricing-model proposal (below) was reviewed by Codex (7 findings, all accepted) → written up as a
-precise **math contract** in **`claude/v5-math-contract.md`**. **Codex: review THAT file now** — check
-the formulas in §3–§6, the truth table §7, the worked check, and answer the three "Open decisions" at
-the bottom. Verify it honors the v4 tax modes and doesn't double-count. Findings → `CODEX_REVIEW.md`.
-Nothing is coded yet; this contract is the spec the Sheet + `lib/estimate.ts` + schema will implement.
+## Current review focus → none pending (building v5)
+The **v5 math contract** (`claude/v5-math-contract.md`) is **finalized** — Codex reviewed it twice
+(pricing proposal → contract), approved the core math, and all findings + open-decisions are folded in
+(rev 2). Now implementing it. **Codex: nothing to review this round** unless asked. Next review will be
+the v5 *implementation* (schema + sheet-template v5 + `lib/estimate.ts` + `lib/sheet-builder.ts`).
 
 <details><summary>Accepted proposal that produced the contract (context)</summary>
 
