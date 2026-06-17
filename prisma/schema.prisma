@@ -149,14 +149,52 @@ model EstimateSettings {
   freight      Float?
 }
 
+model SamOpportunityLead {
+  id                   String    @id @default(cuid())
+  noticeId             String    @unique
+  title                String?
+  solicitationNumber   String?
+  postedDate           DateTime?
+  responseDeadline     String?
+  type                 String?
+  baseType             String?
+  active               String?
+  naicsCode            String?
+  classificationCode   String?
+  setAside             String?
+  organizationName     String?
+  fullParentPathName   String?
+  office               String?
+  placeCity            String?
+  placeState           String?
+  placeZip             String?
+  uiLink               String?
+  descriptionUrl       String?
+  resourceLinks        Json?
+  attachmentCount      Int       @default(0)
+  hasAttachments       Boolean   @default(false)
+  matchedKeywords      String?
+  sourceUrl            String?
+  planStatus           String    @default("unknown") // unknown | likely | found | no_plans | unavailable
+  planUrl              String?
+  raw                  Json?
+  importedAt           DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([naicsCode, postedDate])
+  @@index([hasAttachments])
+  @@index([planStatus])
+  @@index([placeState])
+}
+
 // ── Correction log (the training/eval asset — build day 1) ───
 model Extraction {
-  id          String   @id @default(cuid())
-  planSheetId String   @unique
+  id          String    @id @default(cuid())
+  planSheetId String    @unique
   planSheet   PlanSheet @relation(fields: [planSheetId], references: [id], onDelete: Cascade)
   model       String // "claude-sonnet-4-6"
   rawOutput   Json // what the model returned
   corrected   Json? // what the human confirmed/fixed
   confidence  Json
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 }
