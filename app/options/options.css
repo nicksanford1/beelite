@@ -1,0 +1,35 @@
+/* ============================================================
+   Preview-only chrome for /options. The actual service styles
+   (opt-now, opt-parallax, reveal, mask-line, …) live in globals.css
+   so the homepage can use them too.
+   ============================================================ */
+
+.opt-page {
+  background: var(--ink);
+  color: var(--white);
+}
+
+/* A labelled wrapper so each variant is easy to point at */
+.opt-block {
+  position: relative;
+  border-top: 1px solid var(--line);
+}
+
+.opt-tag {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 20;
+  display: inline-grid;
+  place-items: center;
+  height: 34px;
+  padding: 0 12px;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: var(--red);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}

@@ -1,0 +1,116 @@
+/* Typography preview — same headline/subheadline/body/button shown over
+   the real imagery, one direction per screen. */
+
+.typ-page {
+  background: var(--ink);
+  color: var(--white);
+}
+
+.typ-block {
+  position: relative;
+  overflow: hidden;
+  min-height: 86vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-top: 1px solid var(--line);
+  padding: clamp(56px, 9vw, 110px) var(--gutter);
+}
+
+.typ-bg {
+  position: absolute;
+  inset: 0;
+}
+
+.typ-bg img {
+  object-fit: cover;
+}
+
+.typ-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      120% 100% at 50% 50%,
+      rgba(10, 11, 13, 0.74) 0%,
+      rgba(10, 11, 13, 0.58) 60%,
+      rgba(10, 11, 13, 0.46) 100%
+    ),
+    linear-gradient(0deg, rgba(10, 11, 13, 0.55), rgba(10, 11, 13, 0) 45%);
+}
+
+.typ-tag {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 3;
+  display: inline-grid;
+  place-items: center;
+  height: 34px;
+  padding: 0 14px;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--red);
+  border-radius: 8px;
+}
+
+.typ-inner {
+  position: relative;
+  z-index: 2;
+  max-width: 780px;
+}
+
+/* Headline with a single underline that spans its width */
+.typ-headline {
+  display: table;
+  margin: 0 auto 22px;
+  font-weight: 700;
+  font-size: clamp(2rem, 5vw, 3.6rem);
+  line-height: 1.04;
+  letter-spacing: -0.01em;
+}
+
+.typ-headline--caps {
+  text-transform: uppercase;
+  letter-spacing: 0.005em;
+}
+
+.typ-headline__text {
+  display: block;
+}
+
+.typ-rule {
+  display: block;
+  height: 4px;
+  margin-top: 16px;
+  border-radius: 2px;
+  background: var(--red);
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: ruleIn 0.7s var(--ease) 0.35s both;
+}
+
+.typ-sub {
+  font-size: clamp(1.1rem, 1.8vw, 1.45rem);
+  font-weight: 700;
+  line-height: 1.35;
+  margin-bottom: 22px;
+}
+
+.typ-sub--caps {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: clamp(0.95rem, 1.5vw, 1.2rem);
+}
+
+.typ-lede {
+  max-width: 56ch;
+  margin: 0 auto 32px;
+  font-size: clamp(1.05rem, 1.5vw, 1.2rem);
+  line-height: 1.6;
+  color: #e2e4e8;
+}
