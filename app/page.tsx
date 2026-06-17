@@ -38,7 +38,7 @@ export default async function Home() {
 
           <div className="ledger">
             {projects.map((p) => (
-              <div key={p.id} className="bid">
+              <Link key={p.id} href={`/projects/${p.id}`} className="bid">
                 <div className="bid-main">
                   <div className="bid-name">{p.name}</div>
                   <div className="bid-meta">
@@ -52,7 +52,7 @@ export default async function Home() {
                 <span className="status" data-s={p.status}>
                   {p.status}
                 </span>
-              </div>
+              </Link>
             ))}
           </div>
         </>
