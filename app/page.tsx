@@ -1,29 +1,62 @@
-export default function HomePage() {
+import Link from "next/link";
+import { db } from "@/lib/db";
+import { SiteHeader } from "@/components/site-header";
+
+export const dynamic = "force-dynamic";
+
+function bidDate(d: Date | null) {
+  return d ? d.toISOString().slice(0, 10) : "no date";
+}
+
+export default async function Home() {
+  const projects = await db.project.findMany({ orderBy: { createdAt: "desc" } });
+
   return (
-    <main className="container">
-      <header className="topbar">
-        <div>
-          <h1 className="logo">Beelite</h1>
-          <p className="muted">Flooring takeoff &amp; estimating</p>
-        </div>
-      </header>
+    <main className="wrap">
+      <SiteHeader
+        action={
+          <Link href="/projects/new" className="btn btn-primary">
+            + New bid
+          </Link>
+        }
+      />
 
-      <section>
-        <div className="section-head">
-          <h2>Projects</h2>
-          <button className="btn" disabled title="Wakes up once we add the database (next step)">
-            + New Project
-          </button>
-        </div>
-
+      {projects.length === 0 ? (
         <div className="empty">
-          No projects yet.
-          <br />
-          <span className="muted">
-            The “New Project” button comes alive in the next step, when we connect the database.
-          </span>
+          <h2>No bids yet.</h2>
+          <p>Start your first takeoff — upload plans, read the finishes, build the bid.</p>
+          <Link href="/projects/new" className="btn btn-primary">
+            + New bid
+          </Link>
         </div>
-      </section>
+      ) : (
+        <>
+          <div className="section-label">
+            <span className="eyebrow">Bids</span>
+            <span className="count">{String(projects.length).padStart(2, "0")} active</span>
+          </div>
+
+          <div className="ledger">
+            {projects.map((p) => (
+              <div key={p.id} className="bid">
+                <div className="bid-main">
+                  <div className="bid-name">{p.name}</div>
+                  <div className="bid-meta">
+                    {p.gc ?? "GC —"}
+                    <span className="sep">|</span>
+                    {p.location ?? "location —"}
+                    <span className="sep">|</span>
+                    BID {bidDate(p.bidDate)}
+                  </div>
+                </div>
+                <span className="status" data-s={p.status}>
+                  {p.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </main>
   );
 }

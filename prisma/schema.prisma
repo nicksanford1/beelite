@@ -68,6 +68,7 @@ model Project {
   notes      String?
   status     String             @default("draft") // label only
   sheetId    String? // Google Sheet id (after template copy)
+  createdAt  DateTime           @default(now())
   documents  Document[]
   finishes   ProjectFinish[]
   scopeItems ProjectScopeItem[]
