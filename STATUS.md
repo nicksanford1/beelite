@@ -75,7 +75,54 @@ rewrites `App_*`, formula tabs untouched). `lib/sheet-builder.ts` is the verifie
 Proven end-to-end: `tsx --env-file=.env scripts/test-sync.ts` created a real sheet via OAuth and read
 back **$15,205.54** (then deleted it).
 
-## Current review focus → V1 FINISHING (scope editor, scanner, dry-run validation)
+## Current review focus → UX / IA REDESIGN PROPOSAL (not built)
+The loop works, but the **information architecture is wrong**: every tool is a flat sibling screen and
+`/projects/[id]` is a dumping ground, so it feels "jumbled / split poorly / unbearable" (user). Plan
+previews are unusably tiny; page sheet-number labels confuse (Midlands shows "GAA106", not the expected
+sheet). **Structure problem first, paint second. Codex: review the structure below.** No math/data changes.
+
+### Core change — a guided project WORKSPACE (not a pile of screens)
+Replace the flat detail page + sibling links with a **two-pane workspace**:
+- **Left rail (persistent):** project header (name · GC · due) → a **pipeline stepper** with per-stage
+  status (① Plans ② Finishes ③ Rates ④ Takeoff ⑤ Scope ⑥ Bid; each shows done / pending / blocked, e.g.
+  "3 need rates") → a **live bid summary** (price + profit) → Sync-to-Sheet.
+- **Right pane:** the active stage — one focused job, room to breathe.
+Makes "where am I / what's next / what's blocking the bid" obvious — the thing missing now.
+
+### Project overview = a status dashboard, not a tool dump
+`/projects/[id]` becomes: header, the pipeline tracker (what's complete), the running bid total + the real
+warnings (needs-rate count, empty takeoff, pages needing review), and 1–2 next-step CTAs. It routes into
+the focused stages instead of stacking every tool on one page.
+
+### Stage screens (each its own room)
+1. **Plans** — a real viewer: page list w/ thumbnails + scan suggestions on the side, a **large, zoomable**
+   page preview (fixes the tiny-blueprint problem), inline tagging, then "read schedule."
+2. **Finishes** — AI-read list, confidence, source-page link, confirm.
+3. **Rates** — auto-filled from library, needs-rate badges, override.
+4. **Takeoff** — room rows grouped by finish, running SF rollup.
+5. **Scope** — inclusions / exclusions.
+6. **Bid** — the cost→profit→price statement + sync (already the strongest screen).
+7. **Standard rates (library)** — company-level, outside a project.
+
+### Specific fixes the user hit
+- **Tiny plan previews →** the Plans viewer renders large + zoom; thumbnails are only the index.
+- **Confusing sheet labels →** show **Page N** as primary, the scanner's extracted sheet-number as a clearly
+  *secondary* "best guess," and let the big visual preview be the source of truth. ("GAA106" = the scanner's
+  `SHEET_NUM` regex grabbing the wrong token; surface page # over it, and tighten the regex.)
+
+### Visual direction (build with the frontend-design skill)
+Move off the current generic SaaS teal (a default). Ground it in the subject — commercial flooring takeoff:
+a precise "measured workspace" feel. **Tabular numerals** for every $ and quantity (estimating is tabular
+data), a confident technical display face, an ink-navy base with ONE sharp sparing accent (e.g. surveyor's
+orange) + warm paper neutrals, hairline structure over heavy cards. One signature element; the rest quiet.
+
+### Phasing
+1. Workspace shell (left-rail stepper + running summary + routing) — the structural win.
+2. Plans viewer (big/zoomable) + sheet-label clarity.
+3. Restyle each stage into the shell; the visual system (type, color, tabular numerals).
+4. Overview dashboard.
+
+## (shipped) V1 FINISHING (scope editor, scanner, dry-run validation)
 Closing out V1. **Codex: review against `git log --oneline -10`.** Findings → `CODEX_REVIEW.md`.
 
 - **Scope / exclusions editor** (the last loop gap) — `/projects/[id]/scope` + `components/scope-editor.tsx`
