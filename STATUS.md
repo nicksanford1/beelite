@@ -20,18 +20,20 @@ at the top of `docs/architecture.md`.
 ---
 
 ## Where we are
-**AI extraction proven on a real plan ✅ (the wow works). Next: wire it into the app UI.**
+**Full in-app loop works: plan → AI finishes → rates → takeoff → bid total ✅. Next: bigger plans + page tagging, then Google Sheet sync, then polish.**
 
 | # | Step | State | Needs |
 |---|---|---|---|
 | 1 | Google Sheet template (from `claude/sheet-template.md` v4) | ☑ done — built + verified $15,205.54 | — |
 | 2 | Prisma schema matching the sheet | ☑ done — pushed to Supabase (session pooler) | — |
-| 3 | Project creation (+ Sheet copy*) | ☑ done — home ledger + `/projects/new` form (design system). *copy deferred | — |
-| 4 | PDF upload + page tagging | ◑ upload done; page tagging still TODO | — |
-| 5 | AI finish extraction | ◑ **core proven** (`lib/anthropic.ts`, opus-4-8, structured output; verified on samples/midlands-A701.pdf → 9 finishes, ~$0.06/page). Not yet wired into the app/UI or correction log | — |
-| 6 | Confirm finishes + generate `App_Rates` | ☐ | — |
-| 7 | Manual takeoff table | ☐ | — |
-| 8 | Sync button → write `App_*` tabs | ☐ | Google service account |
+| 3 | Project creation | ☑ done | — |
+| 4 | PDF upload + page tagging | ◑ upload done; page tagging still TODO (needed for big multi-page sets) | — |
+| 5 | AI finish extraction (in app) | ☑ done — `lib/anthropic.ts` + `/finishes` review/confirm; `Extraction` correction log captured; ~$0.06/page | — |
+| 6 | Rates per finish | ☑ done — `/rates` editor | — |
+| 7 | Room-level takeoff | ☑ done — `/takeoff` editor + rollup | — |
+| 8 | In-app bid preview | ☑ done — `/estimate` (`lib/estimate.ts` mirrors the Sheet math) | — |
+| 9 | Sync → Google Sheet `App_*` tabs | ☐ | Google auth decision |
+| 10 | Visual polish pass | ☐ (last) | — |
 
 ---
 
