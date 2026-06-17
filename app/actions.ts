@@ -331,6 +331,12 @@ export async function replaceTakeoff(projectId: string, rows: TakeoffInput[]) {
   redirect(`/projects/${projectId}/estimate`);
 }
 
+export async function deleteProject(projectId: string) {
+  await db.project.delete({ where: { id: projectId } }); // cascades documents/pages/finishes/takeoff/scope/settings
+  revalidatePath("/");
+  redirect("/");
+}
+
 type ScopeInput = { label: string; mode: string; allowance: number | null };
 
 export async function replaceScope(projectId: string, rows: ScopeInput[]) {

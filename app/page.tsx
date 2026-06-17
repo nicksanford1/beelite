@@ -2,6 +2,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { SiteHeader } from "@/components/site-header";
 import { getConnection } from "@/lib/google";
+import { DeleteBidButton } from "@/components/delete-bid-button";
 
 export const dynamic = "force-dynamic";
 
@@ -66,8 +67,8 @@ export default async function Home() {
 
           <div className="list">
             {projects.map((p) => (
-              <Link key={p.id} href={`/projects/${p.id}`} className="card">
-                <div className="card-main">
+              <div key={p.id} className="card">
+                <Link href={`/projects/${p.id}`} className="card-main" style={{ color: "inherit" }}>
                   <div className="card-title">{p.name}</div>
                   <div className="card-meta">
                     {p.gc ?? "No GC"}
@@ -76,11 +77,12 @@ export default async function Home() {
                     <span className="dot">·</span>
                     Bid due {fmtDate(p.bidDate)}
                   </div>
-                </div>
+                </Link>
                 <span className="badge" data-s={p.status}>
                   {p.status}
                 </span>
-              </Link>
+                <DeleteBidButton id={p.id} name={p.name} />
+              </div>
             ))}
           </div>
         </>

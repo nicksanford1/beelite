@@ -72,8 +72,13 @@ export async function extractPages(bytes: Buffer, pageNumbers: number[]): Promis
   return Buffer.from(await out.save());
 }
 
-/** Render one page to a PNG (for on-demand preview). */
-export async function renderPage(bytes: Buffer, pageNumber: number, scale = 1.5): Promise<Buffer> {
+/** Render one page to an image (PNG, or lighter JPEG for previews). */
+export async function renderPage(
+  bytes: Buffer,
+  pageNumber: number,
+  scale = 1.5,
+  mime: "image/png" | "image/jpeg" = "image/png"
+): Promise<Buffer> {
   const { createCanvas } = await import("@napi-rs/canvas");
   const doc = await getDocument({ data: new Uint8Array(bytes), useSystemFonts: true }).promise;
   const page = await doc.getPage(pageNumber);
@@ -84,7 +89,7 @@ export async function renderPage(bytes: Buffer, pageNumber: number, scale = 1.5)
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await page.render({ canvasContext: ctx, viewport, canvas } as any).promise;
-  return canvas.toBuffer("image/png");
+  return mime === "image/jpeg" ? canvas.toBuffer("image/jpeg", 80) : canvas.toBuffer("image/png");
 }
 
 /** Extract each page's text and score it. */
