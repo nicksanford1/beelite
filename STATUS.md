@@ -20,15 +20,15 @@ at the top of `docs/architecture.md`.
 ---
 
 ## Where we are
-**Steps 1–3 done ✅ (app creates/lists bids). Next: documents + AI extraction.**
+**Steps 1–4 (upload) done ✅. Next: page tagging + AI extraction (the wow).**
 
 | # | Step | State | Needs |
 |---|---|---|---|
 | 1 | Google Sheet template (from `claude/sheet-template.md` v4) | ☑ done — built + verified $15,205.54 | — |
 | 2 | Prisma schema matching the sheet | ☑ done — pushed to Supabase (session pooler) | — |
 | 3 | Project creation (+ Sheet copy*) | ☑ done — home ledger + `/projects/new` form (design system). *copy deferred | — |
-| 4 | PDF upload + page tagging | ☐ | — |
-| 5 | AI finish extraction | ☐ | Anthropic key |
+| 4 | PDF upload + page tagging | ◑ upload done (detail page → Supabase Storage); page tagging needs PDF parsing (with step 5) | — |
+| 5 | AI finish extraction | ☐ | Anthropic key + sample plan PDF |
 | 6 | Confirm finishes + generate `App_Rates` | ☐ | — |
 | 7 | Manual takeoff table | ☐ | — |
 | 8 | Sync button → write `App_*` tabs | ☐ | Google service account |
@@ -36,14 +36,14 @@ at the top of `docs/architecture.md`.
 ---
 
 ## Claude proposes next
-Steps 1–3 done. App is live: creates/lists bids on Supabase, designed UI. Two ways forward:
+Steps 1–4(upload) done. App: creates/lists bids, project detail page, uploads plan PDFs to
+Supabase Storage. Blocked only on inputs now:
 
-1. **Project detail + document upload (step 4)** — a project page, upload a plan PDF, tag pages.
-   Unblocked except PDF storage (Supabase Storage bucket — quick to set up).
-2. **AI finish extraction (step 5) — the wow.** Read a finish schedule → finishes table.
-   Needs your **Anthropic key** in `.env` (`ANTHROPIC_API_KEY`) + a sample plan PDF.
-
-Either order works; extraction is the demo headline. Pick based on whether the Anthropic key is ready.
+1. **You:** get an **Anthropic API key** → `.env` as `ANTHROPIC_API_KEY`, and a **sample
+   commercial flooring PDF** with a finish schedule (sourcing options discussed in chat).
+2. **Claude:** **PDF parsing + page tagging** (pdfjs: render page → image + text) and **AI finish
+   extraction** (steps 4-tail + 5) — read the finish schedule → finishes table. **The wow.**
+3. **Claude:** confirm finishes → `ProjectFinish` + seed `App_Rates` (step 6).
 
 **Deferred — Sheet copy** (`*` on step 3): service account can't create/copy sheets on personal
 Gmail. Needs OAuth or Workspace Shared Drive, or reuse one pre-shared sheet for the demo. Decide
