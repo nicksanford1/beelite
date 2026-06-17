@@ -6,7 +6,7 @@ import { uploadPlan, downloadPlan } from "@/lib/storage";
 import { extractFinishSchedule, type ExtractedFinish } from "@/lib/anthropic";
 import { scanPdf, extractPages } from "@/lib/pdf";
 import { getAuthedClient } from "@/lib/google";
-import { createBidSpreadsheet, updateBidData } from "@/lib/sheet-builder";
+import { createBidSpreadsheet, updateBidData, readEngineVersion, isCurrentEngine } from "@/lib/sheet-builder";
 import { google } from "googleapis";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -142,35 +142,36 @@ export async function confirmFinishes(projectId: string, planSheetId: string, fi
     : [];
   const libByCode = new Map(lib.map((l) => [l.code, l]));
 
-  await db.projectFinish.deleteMany({ where: { projectId } });
-  await db.projectFinish.createMany({
-    data: finishes.map((f) => {
-      const seed = libByCode.get(f.code);
-      const r = seed?.rate;
-      const base = {
-        projectId,
-        code: f.code,
-        type: f.type,
-        description: f.description ?? "",
-        unit: f.unit,
-        category: f.category,
-        inScope: f.includedInFlooringScope,
-      };
-      return r // exact-match-or-needs-rate (v5 contract §8)
+  // Merge by code so a re-confirm can't wipe per-bid rates (Codex v5 #3, contract §8 "snapshot, not live"):
+  // existing codes keep their rates (descriptive fields refresh); new codes seed from the library; gone codes drop.
+  const existing = await db.projectFinish.findMany({ where: { projectId } });
+  const existingCodes = new Set(existing.map((e) => e.code));
+  const incomingCodes = new Set(finishes.map((f) => f.code));
+
+  await db.projectFinish.deleteMany({ where: { projectId, code: { notIn: [...incomingCodes] } } });
+
+  await Promise.all(
+    finishes.map((f) => {
+      const desc = { type: f.type, description: f.description ?? "", unit: f.unit, category: f.category, inScope: f.includedInFlooringScope };
+      if (existingCodes.has(f.code)) {
+        // keep rate fields untouched; only refresh the descriptive columns
+        return db.projectFinish.update({ where: { projectId_code: { projectId, code: f.code } }, data: desc });
+      }
+      const r = libByCode.get(f.code)?.rate;
+      const seed = r
         ? {
-            ...base,
             materialUnitCost: r.materialUnitCost,
             installRate: r.installRate,
             wastePct: r.wastePct,
             cartonSize: r.cartonSize,
             materialSource: r.materialSource,
             rateStatus: "seeded",
-            libraryItemId: seed!.id,
+            libraryItemId: libByCode.get(f.code)!.id,
           }
-        : { ...base, rateStatus: "needs_rate" };
-    }),
-    skipDuplicates: true,
-  });
+        : { rateStatus: "needs_rate" };
+      return db.projectFinish.create({ data: { projectId, code: f.code, ...desc, ...seed } });
+    })
+  );
 
   revalidatePath(`/projects/${projectId}`);
   redirect(`/projects/${projectId}`);
@@ -240,13 +241,20 @@ export async function saveSettings(projectId: string, formData: FormData) {
     const v = parseFloat(String(formData.get(k) ?? ""));
     return Number.isFinite(v) ? v : d;
   };
+  const mode = String(formData.get("profitPctMode") ?? "margin");
+  // Clamp profit % at the source so the app preview and the Sheet can never diverge (Codex v5 #2):
+  // never negative; in margin mode keep below 1 (cap 0.95) so 1/(1-pct) stays finite.
+  const clampPct = (k: string, d: number) => {
+    const v = Math.max(0, num(k, d));
+    return mode === "margin" ? Math.min(v, 0.95) : v;
+  };
   const data = {
-    profitPctMode: String(formData.get("profitPctMode") ?? "margin"),
-    materialProfitPct: num("materialProfitPct", 0.25),
-    installProfitPct: num("installProfitPct", 0.3),
-    taxPct: num("taxPct", 0),
+    profitPctMode: mode,
+    materialProfitPct: clampPct("materialProfitPct", 0.25),
+    installProfitPct: clampPct("installProfitPct", 0.3),
+    taxPct: Math.max(0, num("taxPct", 0)),
     taxMode: String(formData.get("taxMode") ?? "total_sell_plus_freight"),
-    freight: num("freight", 0),
+    freight: Math.max(0, num("freight", 0)),
   };
   await db.estimateSettings.upsert({
     where: { projectId },
@@ -293,13 +301,17 @@ export async function syncBidToSheet(
   };
 
   try {
-    // Re-use the bid's sheet if it still exists; otherwise create a fresh one.
+    // Re-use the bid's sheet only if it still exists AND is the current engine version (Codex v5 #1):
+    // a pre-v5 workbook has different hidden columns + formulas, so pushing v5 inputs would miscompute.
     if (project.sheetId) {
       try {
-        await updateBidData(sheets, project.sheetId, bid);
-        const url = `https://docs.google.com/spreadsheets/d/${project.sheetId}/edit`;
-        revalidatePath(`/projects/${projectId}/estimate`);
-        return { ok: true, url, created: false };
+        if (isCurrentEngine(await readEngineVersion(sheets, project.sheetId))) {
+          await updateBidData(sheets, project.sheetId, bid);
+          const url = `https://docs.google.com/spreadsheets/d/${project.sheetId}/edit`;
+          revalidatePath(`/projects/${projectId}/estimate`);
+          return { ok: true, url, created: false };
+        }
+        console.warn("sheet is not v5 (or unreadable) — rebuilding a fresh one");
       } catch (e) {
         // Sheet was deleted/inaccessible — fall through and make a new one.
         console.warn("update existing sheet failed, recreating:", e);

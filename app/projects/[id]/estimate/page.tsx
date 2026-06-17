@@ -145,12 +145,12 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
             </label>
             <span />
             <label>Material {isMargin ? "margin" : "markup"} %
-              <input name="materialProfitPct" type="number" step="0.01" defaultValue={s.materialProfitPct} style={field} />
+              <input name="materialProfitPct" type="number" step="0.01" min="0" max={isMargin ? "0.95" : undefined} defaultValue={s.materialProfitPct} style={field} />
             </label>
             <label>Install {isMargin ? "margin" : "markup"} %
-              <input name="installProfitPct" type="number" step="0.01" defaultValue={s.installProfitPct} style={field} />
+              <input name="installProfitPct" type="number" step="0.01" min="0" max={isMargin ? "0.95" : undefined} defaultValue={s.installProfitPct} style={field} />
             </label>
-            <label>Tax % <input name="taxPct" type="number" step="0.01" defaultValue={s.taxPct ?? 0} style={field} /></label>
+            <label>Tax % <input name="taxPct" type="number" step="0.01" min="0" defaultValue={s.taxPct ?? 0} style={field} /></label>
             <label>Tax base
               <select name="taxMode" defaultValue={s.taxMode} style={field}>
                 <option value="material_cost_only">material cost only</option>

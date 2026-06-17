@@ -7,7 +7,7 @@
  */
 import { google } from "googleapis";
 import { getAuthedClient } from "@/lib/google";
-import { createBidSpreadsheet, type BidInput } from "@/lib/sheet-builder";
+import { createBidSpreadsheet, readEngineVersion, isCurrentEngine, type BidInput } from "@/lib/sheet-builder";
 
 const bid: BidInput = {
   name: "Westside Medical",
@@ -54,6 +54,9 @@ async function main() {
   console.log("BID PRICE:", price, Math.abs(price - 15205.54) < 0.01 ? "✅ matches $15,205.54" : "⚠️ expected 15205.54");
   console.log("Profit:", profit.toFixed(2), "· blended markup", (markup * 100).toFixed(1) + "%", "· margin", (margin * 100).toFixed(1) + "%");
   console.log("Profit check:", Math.abs(profit - 1771.2) < 0.01 ? "✅ $1,771.20" : "⚠️ expected 1771.20");
+
+  const version = await readEngineVersion(sheets, spreadsheetId);
+  console.log("Engine version:", version, isCurrentEngine(version) ? "✅ current (sync will reuse)" : "⚠️ stale (sync would rebuild)");
 
   // clean up the throwaway test sheet
   await drive.files.delete({ fileId: spreadsheetId });

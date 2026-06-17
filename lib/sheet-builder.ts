@@ -7,7 +7,9 @@
  */
 import type { sheets_v4 } from "googleapis";
 
-const N = 60; // fill-down rows for formula tabs
+const N = 200; // fill-down rows for formula tabs (covers large finish schedules; Codex v5 #4)
+const ROWS_END = N + 1; // last formula row index (1-based) → formatting ranges track N
+const ENGINE_VERSION = "beelite-v5"; // written to App_Settings!D1; sync checks it before reusing a sheet
 
 const ID = {
   Summary: 10,
@@ -144,6 +146,8 @@ const summaryChecks: (string)[][] = [
   ["Takeoff code not in finishes", `=SUMPRODUCT((App_Takeoff!$C${RNG}<>"")*(COUNTIF(App_Finishes!$A:$A,App_Takeoff!$C${RNG})=0))`],
   ["Duplicate finish codes", `=SUMPRODUCT((App_Finishes!$A${RNG}<>"")*(COUNTIF(App_Finishes!$A${RNG},App_Finishes!$A${RNG}&"")>1))`],
   ["Duplicate rate codes", `=SUMPRODUCT((App_Rates!$A${RNG}<>"")*(COUNTIF(App_Rates!$A${RNG},App_Rates!$A${RNG}&"")>1))`],
+  // invalid profit % (Codex v5 #2): negative anywhere, or margin-mode pct >= 1
+  ["Invalid pricing %", '=IF(OR(App_Settings!$B$6<0,App_Settings!$B$11<0,AND(App_Settings!$B$5="margin",OR(App_Settings!$B$6>=1,App_Settings!$B$11>=1))),1,0)'],
 ];
 
 const NAMED = [
@@ -239,6 +243,7 @@ function formulaData() {
     { range: "Summary!A17", values: [["Scope assumptions"]] },
     { range: "Summary!A18", values: [['=IFERROR(FILTER(App_Scope!$A$2:$A&" — "&App_Scope!$B$2:$B&IF(App_Scope!$C$2:$C<>""," (allowance $"&App_Scope!$C$2:$C&")",""),App_Scope!$A$2:$A<>""),"")']] },
     { range: "Summary!E1", values: summaryChecks },
+    { range: "App_Settings!D1", values: [[ENGINE_VERSION]] }, // engine-version sentinel (Codex v5 #1)
     { range: "Assumptions!A1", values: [["Assumptions (auto from scope — do not edit)", "", "Manual notes (type here)"]] },
     { range: "Assumptions!A2", values: [['=IFERROR(FILTER(App_Scope!$A$2:$A&" — "&App_Scope!$B$2:$B&IF(App_Scope!$C$2:$C<>""," (allowance $"&App_Scope!$C$2:$C&")",""),App_Scope!$A$2:$A<>""),"")']] },
   ];
@@ -278,13 +283,13 @@ function formattingRequests(): object[] {
     // Estimate
     fmtBold(ID.Estimate, 0, 1, 0, 19),
     { updateSheetProperties: { properties: { sheetId: ID.Estimate, gridProperties: { frozenRowCount: 1 } }, fields: "gridProperties.frozenRowCount" } },
-    fmtNum(ID.Estimate, 1, 61, 9, 18, CURRENCY), // J:R money
+    fmtNum(ID.Estimate, 1, ROWS_END, 9, 18, CURRENCY), // J:R money
     fmtNum(ID.Estimate, 0, 16, 21, 22, CURRENCY), // V bid block
     fmtNum(ID.Estimate, 9, 11, 21, 22, PERCENT), // V10:V11 blended %
     fmtBold(ID.Estimate, 0, 16, 20, 21), // U labels
     // Rates
     fmtBold(ID.Rates, 0, 1, 0, 17),
-    ...[2, 5, 8, 11, 14].map((c) => fmtBg(ID.Rates, 1, 61, c, c + 1, YELLOW)), // override columns
+    ...[2, 5, 8, 11, 14].map((c) => fmtBg(ID.Rates, 1, ROWS_END, c, c + 1, YELLOW)), // override columns
   ];
 }
 
@@ -323,6 +328,18 @@ export async function createBidSpreadsheet(sheets: Sheets, bid: BidInput) {
   });
   return { spreadsheetId, url };
 }
+
+/** Read the engine-version sentinel from App_Settings!D1. null = missing/unreadable (treat as stale). */
+export async function readEngineVersion(sheets: Sheets, spreadsheetId: string): Promise<string | null> {
+  try {
+    const got = await sheets.spreadsheets.values.get({ spreadsheetId, range: "App_Settings!D1" });
+    return (got.data.values?.[0]?.[0] as string) ?? null;
+  } catch {
+    return null; // trashed / no access / pre-v5 sheet without the tab
+  }
+}
+
+export const isCurrentEngine = (v: string | null) => v === ENGINE_VERSION;
 
 /** Re-push a bid's inputs into an existing Sheet. Clears App_* data, rewrites it; formulas/formats untouched. */
 export async function updateBidData(sheets: Sheets, spreadsheetId: string, bid: BidInput) {

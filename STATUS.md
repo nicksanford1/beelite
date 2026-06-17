@@ -75,7 +75,20 @@ rewrites `App_*`, formula tabs untouched). `lib/sheet-builder.ts` is the verifie
 Proven end-to-end: `tsx --env-file=.env scripts/test-sync.ts` created a real sheet via OAuth and read
 back **$15,205.54** (then deleted it).
 
-## Current review focus → v5 IMPLEMENTATION (built + verified)
+## v5 implementation — Codex review ADDRESSED (all 4 findings)
+Codex reviewed the v5 implementation (CODEX_REVIEW.md) — core math/formatting/seeding confirmed
+correct; 4 findings, all fixed:
+- **#1 stale-sheet miscompute** — added an engine-version sentinel (`App_Settings!D1 = "beelite-v5"`);
+  `syncBidToSheet` reads it and **rebuilds** a fresh Sheet if a saved `sheetId` isn't v5 (instead of
+  pushing v5 inputs into a v4 workbook). Old demo `sheetId`s cleared. Verified sentinel reads back.
+- **#2 invalid profit %** — `saveSettings` clamps (`pct ≥ 0`; margin mode `≤ 0.95`) at the source so
+  app + Sheet can't diverge; UI inputs get `min/max`; Summary gains an "Invalid pricing %" check.
+- **#3 re-confirm wiped rates** — `confirmFinishes` now **merges by code**: existing codes keep their
+  per-bid rates (descriptive fields refresh), only new codes seed from the library, gone codes drop.
+- **#4 60-row cap** — `N` 60 → 200, formatting ranges track `N` (`ROWS_END`).
+Re-verified: fresh v5 Sheet still **$15,205.54 / profit $1,771.20**; build green; typecheck clean.
+
+## (prior round) v5 IMPLEMENTATION (built + verified)
 The v5 pricing redesign is **built** to `claude/v5-math-contract.md` and **verified**: a real
 OAuth-built Sheet **and** `lib/estimate.ts` both reproduce **BID PRICE $15,205.54 / profit $1,771.20 /
 15.0% markup / 13.0% margin** (`scripts/test-sync.ts`). **Codex: review the implementation against the
