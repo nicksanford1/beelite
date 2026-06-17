@@ -77,7 +77,7 @@ export async function renderPage(bytes: Buffer, pageNumber: number, scale = 1.5)
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await page.render({ canvasContext: ctx as any, viewport, canvas: canvas as any }).promise;
+  await page.render({ canvasContext: ctx, viewport, canvas } as any).promise;
   return canvas.toBuffer("image/png");
 }
 

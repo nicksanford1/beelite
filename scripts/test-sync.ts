@@ -16,10 +16,10 @@ const bid: BidInput = {
   bidDate: new Date("2026-06-20"),
   notes: "",
   finishes: [
-    { code: "LVT-1", type: "LVT", description: "Luxury vinyl tile", unit: "SF", category: "floor", inScope: true, materialCost: 2.85, installMode: "unit_rate", installAmount: 1.55, wastePct: 0.08, cartonSize: 30, furnishType: "furnish_and_sub" },
-    { code: "CPT-1", type: "Carpet tile", description: "Office carpet tile", unit: "SF", category: "floor", inScope: true, materialCost: 3.2, installMode: "unit_rate", installAmount: 0.95, wastePct: 0.06, cartonSize: 48, furnishType: "furnish_and_sub" },
-    { code: "RB-1", type: "Rubber base", description: '4" rubber base', unit: "LF", category: "base", inScope: true, materialCost: 0.92, installMode: "unit_rate", installAmount: 1.1, wastePct: 0.05, cartonSize: 100, furnishType: "furnish_and_sub" },
-    { code: "PT-2", type: "Paint", description: "Wall paint", unit: "--", category: "wall", inScope: false, materialCost: 0, installMode: "pending", installAmount: null, wastePct: 0, cartonSize: null, furnishType: "furnish_and_sub" },
+    { code: "LVT-1", type: "LVT", description: "Luxury vinyl tile", unit: "SF", category: "floor", inScope: true, materialUnitCost: 2.85, installRate: 1.55, wastePct: 0.08, cartonSize: 30, materialSource: "elite_furnishes" },
+    { code: "CPT-1", type: "Carpet tile", description: "Office carpet tile", unit: "SF", category: "floor", inScope: true, materialUnitCost: 3.2, installRate: 0.95, wastePct: 0.06, cartonSize: 48, materialSource: "elite_furnishes" },
+    { code: "RB-1", type: "Rubber base", description: '4" rubber base', unit: "LF", category: "base", inScope: true, materialUnitCost: 0.92, installRate: 1.1, wastePct: 0.05, cartonSize: 100, materialSource: "elite_furnishes" },
+    { code: "PT-2", type: "Paint", description: "Wall paint", unit: "--", category: "wall", inScope: false, materialUnitCost: 0, installRate: 0, wastePct: 0, cartonSize: null, materialSource: "elite_furnishes" },
   ],
   takeoff: [
     { sheet: "A101", area: "Rooms 101-108", finishCode: "LVT-1", qty: 1250, unit: "SF", status: "approved" },
@@ -33,7 +33,7 @@ const bid: BidInput = {
     { label: "Moisture mitigation", mode: "excluded", allowance: null },
     { label: "Demolition", mode: "excluded", allowance: null },
   ],
-  settings: { pricingMode: "markup", pct: 0.15, subMarkupPct: 0.15, taxPct: 0.08, taxMode: "total_sell_plus_freight", freight: 500 },
+  settings: { profitPctMode: "markup", materialProfitPct: 0.15, installProfitPct: 0.15, taxPct: 0.08, taxMode: "total_sell_plus_freight", freight: 500 },
 };
 
 async function main() {
@@ -45,13 +45,15 @@ async function main() {
   const { spreadsheetId, url } = await createBidSpreadsheet(sheets, bid);
   console.log("Created sheet in your Drive:", url);
 
-  const got = await sheets.spreadsheets.values.get({
+  const got = await sheets.spreadsheets.values.batchGet({
     spreadsheetId,
-    range: "Summary!B5",
+    ranges: ["Summary!C15", "Estimate!V7", "Estimate!V10", "Estimate!V11"],
     valueRenderOption: "UNFORMATTED_VALUE",
   });
-  const total = Number(got.data.values?.[0]?.[0]);
-  console.log("Bid Total:", total, Math.abs(total - 15205.54) < 0.01 ? "✅ matches $15,205.54" : "⚠️ expected 15205.54");
+  const [price, profit, markup, margin] = (got.data.valueRanges ?? []).map((v) => Number(v.values?.[0]?.[0]));
+  console.log("BID PRICE:", price, Math.abs(price - 15205.54) < 0.01 ? "✅ matches $15,205.54" : "⚠️ expected 15205.54");
+  console.log("Profit:", profit.toFixed(2), "· blended markup", (markup * 100).toFixed(1) + "%", "· margin", (margin * 100).toFixed(1) + "%");
+  console.log("Profit check:", Math.abs(profit - 1771.2) < 0.01 ? "✅ $1,771.20" : "⚠️ expected 1771.20");
 
   // clean up the throwaway test sheet
   await drive.files.delete({ fileId: spreadsheetId });

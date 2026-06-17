@@ -33,12 +33,18 @@ only hidden `App_*` tabs (stable order, no reorder/delete); visible tabs are for
 `override` columns. DB stores inputs, not computed totals.
 
 ## Key decisions (newest first)
-- **taxMode**: `material_cost_only | material_sell_only | total_sell_plus_freight`.
-- **furnishType** per finish (`furnish_and_sub | turnkey_sub`); turnkey → material auto $0.
-- **subMarkupPct** separate from material `pct`, defaulted equal (one-markup behavior until changed).
-- **Install is always subcontracted** (company subs 100% of labor); `pending` = awaiting sub quote, flagged.
+- **v5 pricing model** (`claude/v5-math-contract.md`): bid is **cost → profit → price**. Install is
+  always a per-unit sub rate; `materialSource` = `elite_furnishes | owner_furnishes` (owner → material $0).
+  Removed `installMode=pending` and `furnishType=turnkey_sub`. Verified: v4 dummy bid still = $15,205.54.
+- **Profit lens** `profitPctMode` = `markup | margin` (default margin); `materialProfitPct` +
+  `installProfitPct` (renamed from `pct`/`subMarkupPct`). Summary shows profit $, blended markup %, margin %.
+  Profit excludes freight + tax. Margin guarded `0 ≤ pct < 1`.
+- **needs_rate** from EFFECTIVE rates (override clears it); company rate library seeds new bids
+  (exact `company+code` match, snapshot-at-confirm, override wins; no auto-price from "similar").
+- **taxMode**: `material_cost_only | material_sell_only | total_sell_plus_freight` (unchanged).
 - **Rates** use default/override/effective (hidden `App_Rates` + visible `Rates`); resync can't clobber edits.
+- **Google Sheet sync** via OAuth (`drive.file`): one Sheet per bid, app is the master index.
 - Repo flattened; `website/` removed (estimator-only).
 
 ## Current build step
-See `STATUS.md`. (Now: step 2, data layer.)
+See `STATUS.md`. (Now: v5 pricing redesign built + verified; Sheet formatted as a bid statement.)

@@ -36,12 +36,11 @@ export default async function RatesPage({ params }: { params: Promise<{ id: stri
               id: f.id,
               code: f.code,
               type: f.type,
-              materialCost: f.materialCost,
-              installMode: f.installMode,
-              installAmount: f.installAmount,
+              materialUnitCost: f.materialUnitCost,
+              installRate: f.installRate,
               wastePct: f.wastePct,
               cartonSize: f.cartonSize,
-              furnishType: f.furnishType,
+              materialSource: f.materialSource,
             }))}
           />
         )}

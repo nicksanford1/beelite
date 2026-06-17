@@ -130,22 +130,45 @@ export async function rescanDocument(documentId: string) {
 }
 
 // Confirm/correct the reviewed finishes → save ProjectFinish + log the correction on the EXACT extraction.
+// Seeds each finish's rate from the company library (exact code match) → "the ceiling"; no match = needs_rate.
 export async function confirmFinishes(projectId: string, planSheetId: string, finishes: ExtractedFinish[]) {
   await db.extraction
     .update({ where: { planSheetId }, data: { corrected: { finishes } } })
     .catch(() => {});
 
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { companyId: true } });
+  const lib = project
+    ? await db.finishLibraryItem.findMany({ where: { companyId: project.companyId }, include: { rate: true } })
+    : [];
+  const libByCode = new Map(lib.map((l) => [l.code, l]));
+
   await db.projectFinish.deleteMany({ where: { projectId } });
   await db.projectFinish.createMany({
-    data: finishes.map((f) => ({
-      projectId,
-      code: f.code,
-      type: f.type,
-      description: f.description ?? "",
-      unit: f.unit,
-      category: f.category,
-      inScope: f.includedInFlooringScope,
-    })),
+    data: finishes.map((f) => {
+      const seed = libByCode.get(f.code);
+      const r = seed?.rate;
+      const base = {
+        projectId,
+        code: f.code,
+        type: f.type,
+        description: f.description ?? "",
+        unit: f.unit,
+        category: f.category,
+        inScope: f.includedInFlooringScope,
+      };
+      return r // exact-match-or-needs-rate (v5 contract §8)
+        ? {
+            ...base,
+            materialUnitCost: r.materialUnitCost,
+            installRate: r.installRate,
+            wastePct: r.wastePct,
+            cartonSize: r.cartonSize,
+            materialSource: r.materialSource,
+            rateStatus: "seeded",
+            libraryItemId: seed!.id,
+          }
+        : { ...base, rateStatus: "needs_rate" };
+    }),
     skipDuplicates: true,
   });
 
@@ -155,12 +178,11 @@ export async function confirmFinishes(projectId: string, planSheetId: string, fi
 
 type RateInput = {
   id: string;
-  materialCost: number;
-  installMode: string;
-  installAmount: number | null;
+  materialUnitCost: number;
+  installRate: number;
   wastePct: number;
   cartonSize: number | null;
-  furnishType: string;
+  materialSource: string;
 };
 
 export async function saveRates(projectId: string, rates: RateInput[]) {
@@ -169,12 +191,12 @@ export async function saveRates(projectId: string, rates: RateInput[]) {
       db.projectFinish.update({
         where: { id: r.id },
         data: {
-          materialCost: r.materialCost,
-          installMode: r.installMode,
-          installAmount: r.installAmount,
+          materialUnitCost: r.materialUnitCost,
+          installRate: r.installRate,
           wastePct: r.wastePct,
           cartonSize: r.cartonSize,
-          furnishType: r.furnishType,
+          materialSource: r.materialSource,
+          rateStatus: "manual",
         },
       })
     )
@@ -219,9 +241,9 @@ export async function saveSettings(projectId: string, formData: FormData) {
     return Number.isFinite(v) ? v : d;
   };
   const data = {
-    pricingMode: String(formData.get("pricingMode") ?? "markup"),
-    pct: num("pct", 0.15),
-    subMarkupPct: num("subMarkupPct", 0.15),
+    profitPctMode: String(formData.get("profitPctMode") ?? "margin"),
+    materialProfitPct: num("materialProfitPct", 0.25),
+    installProfitPct: num("installProfitPct", 0.3),
     taxPct: num("taxPct", 0),
     taxMode: String(formData.get("taxMode") ?? "total_sell_plus_freight"),
     freight: num("freight", 0),

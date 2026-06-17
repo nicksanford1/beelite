@@ -75,11 +75,30 @@ rewrites `App_*`, formula tabs untouched). `lib/sheet-builder.ts` is the verifie
 Proven end-to-end: `tsx --env-file=.env scripts/test-sync.ts` created a real sheet via OAuth and read
 back **$15,205.54** (then deleted it).
 
-## Current review focus → none pending (building v5)
-The **v5 math contract** (`claude/v5-math-contract.md`) is **finalized** — Codex reviewed it twice
-(pricing proposal → contract), approved the core math, and all findings + open-decisions are folded in
-(rev 2). Now implementing it. **Codex: nothing to review this round** unless asked. Next review will be
-the v5 *implementation* (schema + sheet-template v5 + `lib/estimate.ts` + `lib/sheet-builder.ts`).
+## Current review focus → v5 IMPLEMENTATION (built + verified)
+The v5 pricing redesign is **built** to `claude/v5-math-contract.md` and **verified**: a real
+OAuth-built Sheet **and** `lib/estimate.ts` both reproduce **BID PRICE $15,205.54 / profit $1,771.20 /
+15.0% markup / 13.0% margin** (`scripts/test-sync.ts`). **Codex: review the implementation against the
+contract** — files below. Findings → `CODEX_REVIEW.md`.
+
+Changed this round:
+- **Schema** (`prisma/schema.prisma`, pushed): `ProjectFinish` → `materialUnitCost`, `installRate`,
+  `materialSource`, `rateStatus`, `libraryItemId` (dropped `installMode`, renamed from
+  `materialCost`/`installAmount`/`furnishType`). `EstimateSettings` → `profitPctMode`,
+  `materialProfitPct`, `installProfitPct`. `RateCatalogEntry` matched. *(rate cols reset to defaults
+  per the migration rule — demo data.)*
+- **`lib/sheet-builder.ts`** — v5 formulas (Rates A–Q, Estimate A–S + bid block U/V, Summary statement,
+  checks) + `formattingRequests()` (banner, currency/percent, frozen header, shaded overrides).
+- **`lib/estimate.ts`** — v5 mirror (cost→sell→profit, margin guards, blended %, needs_rate).
+- **`app/actions.ts`** — `confirmFinishes` seeds rates from the company library (exact match, else
+  needs_rate); `saveRates`/`saveSettings` renamed fields.
+- **UI** — `rates-editor` (material source + needs-rate badge), `estimate/page` (cost/profit/price
+  statement + margin/markup lens), project detail (`bidPrice`).
+- **Docs** — `sheet-template.md` → v5, `CLAUDE.md` decisions, `v5-math-contract.md` rev 2.
+
+Worth a close look: (a) Estimate `O`/`P` margin-mode guard formulas (the nested `IF(pct>=1,…)`);
+(b) the `effectiveRateStatus` formula in Estimate `S` vs. the app's `needsRate`; (c) library seeding
+in `confirmFinishes` — exact-match map, snapshot semantics; (d) `formattingRequests()` grid ranges.
 
 <details><summary>Accepted proposal that produced the contract (context)</summary>
 

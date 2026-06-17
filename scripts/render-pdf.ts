@@ -21,7 +21,7 @@ async function main() {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  await page.render({ canvasContext: ctx as any, viewport, canvas: canvas as any }).promise;
+  await page.render({ canvasContext: ctx, viewport, canvas } as any).promise;
   writeFileSync(out, canvas.toBuffer("image/png"));
   console.log(`wrote ${out}  (${canvas.width}x${canvas.height})`);
 }

@@ -133,9 +133,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           <h2 className="section-title">Bid</h2>
           <div className="card" style={{ alignItems: "baseline" }}>
             <div className="card-main">
-              <div className="card-meta">Bid total {hasTakeoff ? "" : "(enter a takeoff to populate)"}</div>
+              <div className="card-meta">Bid price {hasTakeoff ? "" : "(enter a takeoff to populate)"}</div>
               <div style={{ fontSize: 30, fontWeight: 700, fontFamily: "var(--font-display)", letterSpacing: "-0.02em" }}>
-                {usd(bid.bidTotal)}
+                {usd(bid.bidPrice)}
               </div>
             </div>
             <Link href={`/projects/${id}/estimate`} className="btn btn-primary">Open bid</Link>
