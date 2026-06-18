@@ -2,10 +2,10 @@
 
 import { db } from "@/lib/db";
 import { getOrCreateDefaultCompany } from "@/lib/company";
-import { uploadPlan, downloadPlan } from "@/lib/storage";
-import { extractFinishSchedule, extractFinishesFromPages, type ExtractedFinish } from "@/lib/anthropic";
-import { scanPdf, extractPages } from "@/lib/pdf";
-import { readPageArtifact } from "@/lib/ingest";
+import { uploadPlan, downloadPlan, signedUrl } from "@/lib/storage";
+import { extractFinishSchedule, extractFinishesFromPages, readFinishesGuarded, extractProjectInfo, type ExtractedFinish, type ProjectInfo } from "@/lib/anthropic";
+import { scanPdf, extractPages, renderPage } from "@/lib/pdf";
+import { readPageArtifact, ingestDocument } from "@/lib/ingest";
 import { getAuthedClient } from "@/lib/google";
 import { createBidSpreadsheet, updateBidData, readEngineVersion, isCurrentEngine } from "@/lib/sheet-builder";
 import { google } from "googleapis";
@@ -68,6 +68,66 @@ export async function createProject(formData: FormData) {
   redirect("/");
 }
 
+// Upload-first intake: read the cover for project details (fast), create the project + document,
+// and kick off the full page ingest in the background. Returns the metadata for a confirm screen.
+export async function analyzeUpload(formData: FormData): Promise<{ projectId?: string; info?: Partial<ProjectInfo>; error?: string }> {
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "Please choose a PDF." };
+  const bytes = Buffer.from(await file.arrayBuffer());
+
+  // fast cover read → project metadata
+  let info: Partial<ProjectInfo> = {};
+  try {
+    const cover = await renderPage(bytes, 1, 1.3, "image/jpeg");
+    info = (await extractProjectInfo(cover.toString("base64"))).info;
+  } catch (e) {
+    console.error("[analyzeUpload] cover read failed:", e);
+  }
+
+  const company = await getOrCreateDefaultCompany();
+  const noteBits = [info.scope, info.squareFeet && `~${info.squareFeet}`, info.architect && `Architect: ${info.architect}`].filter(Boolean);
+  const project = await db.project.create({
+    data: {
+      companyId: company.id,
+      name: info.name || file.name.replace(/\.pdf$/i, ""),
+      gc: info.contractor || null,
+      location: info.address || null,
+      projectType: info.useType || null,
+      notes: noteBits.join(" · ") || null,
+    },
+  });
+  const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+  const path = `${project.id}/${Date.now()}-${safeName}`;
+  await uploadPlan(path, bytes, file.type || "application/pdf");
+  const doc = await db.document.create({ data: { projectId: project.id, fileUrl: path } });
+
+  // full page-by-page ingest in the background — don't block the confirm step
+  void ingestDocument(doc.id, { bytes }).catch((e) => console.error("[analyzeUpload] background ingest failed:", e));
+
+  return { projectId: project.id, info };
+}
+
+// Save the user's confirmed/edited project details, then go to the project.
+export async function confirmProject(projectId: string, formData: FormData) {
+  const bidDateRaw = str(formData.get("bidDate"));
+  await db.project.update({
+    where: { id: projectId },
+    data: {
+      name: str(formData.get("name")) ?? "Untitled bid",
+      gc: str(formData.get("gc")),
+      location: str(formData.get("location")),
+      projectType: str(formData.get("projectType")),
+      estimator: str(formData.get("estimator")),
+      leadSource: str(formData.get("leadSource")),
+      internalBidNum: str(formData.get("internalBidNum")),
+      bidDate: bidDateRaw ? new Date(bidDateRaw) : null,
+      notes: str(formData.get("notes")),
+    },
+  });
+  revalidatePath("/");
+  redirect(`/projects/${projectId}`);
+}
+
 export async function uploadDocument(projectId: string, formData: FormData) {
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) return;
@@ -79,24 +139,12 @@ export async function uploadDocument(projectId: string, formData: FormData) {
 
   const doc = await db.document.create({ data: { projectId, fileUrl: path } });
 
-  // scan every page → one PlanSheet per page (suggested tag + signals); human confirms later
+  // Ingest every page → per-page text + page image (no scanner, no guessing). Reuses the bytes we
+  // already have so it doesn't re-download. This is what makes the uploaded plan readable.
   try {
-    const scans = await scanPdf(bytes);
-    if (scans.length) {
-      await db.planSheet.createMany({
-        data: scans.map((s) => ({
-          documentId: doc.id,
-          pageNumber: s.pageNumber,
-          sheetNumber: s.sheetNumber,
-          sheetTitle: s.sheetTitle,
-          suggestedSheetType: s.suggestedSheetType,
-          scanScore: s.score,
-          scanSignals: s.signals as object,
-        })),
-      });
-    }
+    await ingestDocument(doc.id, { bytes });
   } catch (e) {
-    console.error("page scan failed:", e);
+    console.error("ingest failed:", e);
   }
 
   revalidatePath(`/projects/${projectId}`);
@@ -160,6 +208,70 @@ export async function readSchedule(documentId: string) {
     }
   } catch (e) {
     console.error("[readSchedule] failed:", e);
+    errCode = "read_failed";
+  }
+
+  if (errCode) redirect(`/projects/${projectId}/finishes?err=${errCode}`);
+  revalidatePath(`/projects/${projectId}/finishes`);
+  redirect(`/projects/${projectId}/finishes`);
+}
+
+// Mark a bid as passed / not-a-fit (e.g. no finish schedule, no flooring scope). Keeps the record +
+// the reason rather than deleting, so it informs lead triage.
+export async function passProject(projectId: string, formData: FormData) {
+  const reason = str(formData.get("reason")) ?? "Not a fit";
+  const proj = await db.project.findUnique({ where: { id: projectId }, select: { notes: true } });
+  await db.project.update({
+    where: { id: projectId },
+    data: { status: "passed", notes: [`Passed: ${reason}`, proj?.notes].filter(Boolean).join(" · ") },
+  });
+  revalidatePath("/");
+  redirect("/");
+}
+
+// Whole-document read: AI finds the schedule across the whole set and extracts finishes (no tagging).
+// The human verifies the finishes on /finishes, same as the cover-detail step.
+export async function readWholeDoc(documentId: string) {
+  const doc = await db.document.findUnique({
+    where: { id: documentId },
+    include: { pages: { orderBy: { pageNumber: "asc" }, take: 1 } },
+  });
+  if (!doc) return;
+  const projectId = doc.projectId;
+  let errCode: string | null = null;
+
+  try {
+    const url = await signedUrl(doc.fileUrl, 900); // Anthropic fetches it — we never download the big file
+    const { result, model } = await readFinishesGuarded(url);
+    const finishes = result.finishes;
+
+    // Extractions attach to a PlanSheet; for a whole-doc read use page 1 (create a stub if ingest
+    // hasn't reached it yet).
+    const primary =
+      doc.pages[0] ??
+      (await db.planSheet.upsert({
+        where: { documentId_pageNumber: { documentId, pageNumber: 1 } },
+        create: { documentId, pageNumber: 1, sheetType: "untagged" },
+        update: {},
+      }));
+
+    await db.extraction.deleteMany({ where: { planSheet: { documentId, id: { not: primary.id } } } });
+    const confidence = finishes.map((f) => ({ code: f.code, confidence: f.confidence }));
+    const rawOutput = {
+      status: result.status,
+      confidence: result.confidence,
+      reason: result.reason,
+      evidencePages: result.evidencePages,
+      finishes,
+      whole: true,
+    };
+    await db.extraction.upsert({
+      where: { planSheetId: primary.id },
+      create: { planSheetId: primary.id, model, rawOutput, confidence },
+      update: { model, rawOutput, corrected: undefined },
+    });
+  } catch (e) {
+    console.error("[readWholeDoc] failed:", e);
     errCode = "read_failed";
   }
 

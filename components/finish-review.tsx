@@ -28,11 +28,13 @@ export function FinishReview({ projectId, planSheetId, initial }: { projectId: s
           <thead>
             <tr style={{ color: "var(--muted)", fontSize: 12, textAlign: "left" }}>
               <th style={cell}>Code</th>
-              <th style={cell}>Type / description</th>
+              <th style={cell}>Type</th>
+              <th style={cell}>Description</th>
               <th style={cell}>Unit</th>
               <th style={cell}>Category</th>
               <th style={{ ...cell, textAlign: "center" }}>In&nbsp;scope</th>
               <th style={{ ...cell, textAlign: "center" }}>Conf.</th>
+              <th style={cell}>Source</th>
               <th style={cell}></th>
             </tr>
           </thead>
@@ -43,7 +45,10 @@ export function FinishReview({ projectId, planSheetId, initial }: { projectId: s
                   <input style={{ ...input, fontWeight: 600, width: 90 }} value={f.code} onChange={(e) => update(i, { code: e.target.value })} />
                 </td>
                 <td style={cell}>
-                  <input style={input} value={f.type} onChange={(e) => update(i, { type: e.target.value })} />
+                  <input style={{ ...input, minWidth: 110 }} value={f.type} onChange={(e) => update(i, { type: e.target.value })} />
+                </td>
+                <td style={cell}>
+                  <input style={{ ...input, minWidth: 260 }} value={f.description} onChange={(e) => update(i, { description: e.target.value })} />
                 </td>
                 <td style={cell}>
                   <select style={{ ...input, width: 80 }} value={f.unit} onChange={(e) => update(i, { unit: e.target.value as ExtractedFinish["unit"] })}>
@@ -60,6 +65,9 @@ export function FinishReview({ projectId, planSheetId, initial }: { projectId: s
                 </td>
                 <td style={{ ...cell, textAlign: "center", color: f.confidence < 0.9 ? "#b45309" : "var(--muted)" }}>
                   {f.confidence.toFixed(2)}
+                </td>
+                <td style={{ ...cell, color: "var(--muted)", fontFamily: "var(--font-mono)", fontSize: 12, whiteSpace: "nowrap" }}>
+                  {f.sourcePage || "—"}
                 </td>
                 <td style={cell}>
                   <button type="button" onClick={() => remove(i)} aria-label="Remove" style={{ ...input, width: "auto", cursor: "pointer", color: "var(--muted)" }}>✕</button>

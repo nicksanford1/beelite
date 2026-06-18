@@ -12,6 +12,7 @@
     "build:sheet": "tsx scripts/build-sheet-template.ts",
     "nola:fetch": "tsx --env-file=.env scripts/nola-fetch.ts",
     "nola:docs": "tsx --env-file=.env scripts/nola-docs.ts",
+    "nola:intake": "tsx --env-file=.env scripts/nola-intake.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

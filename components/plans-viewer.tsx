@@ -109,14 +109,8 @@ function PageCanvas({ pdf, pageNumber, zoom }: { pdf: any; pageNumber: number; z
 export function PlansViewer({ projectId, documentId, initial }: { projectId: string; documentId: string; initial: Page[] }) {
   const [tags, setTags] = useState<Record<string, string>>(() =>
     Object.fromEntries(
-      initial.map((p) => [
-        p.id,
-        p.sheetType !== "untagged"
-          ? p.sheetType
-          : p.suggestedSheetType && p.suggestedSheetType !== "other"
-            ? p.suggestedSheetType
-            : "untagged",
-      ])
+      // No scanner guessing: every page starts untagged unless a human already tagged it.
+      initial.map((p) => [p.id, p.sheetType !== "untagged" ? p.sheetType : "untagged"])
     )
   );
   const [pdf, setPdf] = useState<any>(null);
@@ -150,8 +144,6 @@ export function PlansViewer({ projectId, documentId, initial }: { projectId: str
       await readSchedule(documentId);
     });
 
-  const suggestions = initial.filter((p) => p.suggestedSheetType === "finish_schedule");
-
   return (
     <div>
       <div
@@ -172,23 +164,12 @@ export function PlansViewer({ projectId, documentId, initial }: { projectId: str
           <button className="btn" title="Fit page to screen" style={{ padding: "4px 10px", fontSize: 13 }} onClick={() => setZoom(82)}>Fit</button>
           <button className="btn mono" title="Zoom in" style={{ padding: "4px 11px", fontSize: 15 }} onClick={() => setZoom((z) => Math.min(320, z + 25))}>+</button>
         </span>
-        {suggestions.length > 0 && (
-          <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-            <span className="card-meta">Jump to likely:</span>
-            {suggestions.map((p) => (
-              <a key={p.id} href={`#page-${p.pageNumber}`} className="btn mono" style={{ padding: "4px 10px", fontSize: 13 }}>
-                pg {p.pageNumber}
-              </a>
-            ))}
-          </span>
-        )}
       </div>
 
       {loadErr && <p className="hint" style={{ color: "#b45309" }}>⚠ {loadErr}</p>}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
         {initial.map((p) => {
-          const suggested = p.suggestedSheetType === "finish_schedule";
           const tag = tags[p.id];
           const isSchedule = tag === "finish_schedule";
           return (
@@ -198,14 +179,13 @@ export function PlansViewer({ projectId, documentId, initial }: { projectId: str
               className="card"
               style={{
                 display: "block", padding: 14, scrollMarginTop: 80,
-                borderLeft: isSchedule ? "4px solid var(--marking)" : suggested ? "4px solid var(--marking-soft)" : "4px solid transparent",
+                borderLeft: isSchedule ? "4px solid var(--marking)" : "4px solid transparent",
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
                   <strong className="mono" style={{ fontSize: 15 }}>Page {p.pageNumber}</strong>
                   {isSchedule && <span style={{ fontSize: 12.5, color: "var(--marking)", fontWeight: 600 }}>tagged: finish schedule</span>}
-                  {!isSchedule && suggested && <span style={{ fontSize: 12.5, color: "var(--marking)", fontWeight: 600 }}>likely a finish schedule</span>}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   {TYPES.map((t) => (

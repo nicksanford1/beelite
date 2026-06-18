@@ -32,13 +32,13 @@ export type IngestResult = { pages: number; processed: number; textPages: number
  */
 export async function ingestDocument(
   documentId: string,
-  opts: { scale?: number; only?: number[] } = {}
+  opts: { scale?: number; only?: number[]; bytes?: Buffer } = {}
 ): Promise<IngestResult> {
   const scale = opts.scale ?? 1.1; // small but legible page image
   const doc = await db.document.findUnique({ where: { id: documentId } });
   if (!doc) throw new Error(`document ${documentId} not found`);
 
-  const bytes = await downloadPlan(doc.fileUrl); // the one and only full-file pull
+  const bytes = opts.bytes ?? (await downloadPlan(doc.fileUrl)); // reuse caller's bytes (upload) if given
   const pdf = await getDocument({ data: new Uint8Array(bytes), useSystemFonts: true }).promise;
   const total = pdf.numPages;
   const targets = opts.only?.length

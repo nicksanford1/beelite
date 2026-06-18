@@ -62,14 +62,18 @@ model Project {
   id         String             @id @default(cuid())
   companyId  String
   company    Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  name       String
-  bidDate    DateTime?
-  gc         String?
-  location   String?
-  notes      String?
-  status     String             @default("draft") // label only
-  sheetId    String? // Google Sheet id (after template copy)
-  createdAt  DateTime           @default(now())
+  name          String
+  bidDate       DateTime?
+  gc            String? // GC / Customer
+  location      String?
+  projectType   String? // e.g. "Office TI", "Restaurant", "Worship / Commercial"
+  estimator     String?
+  leadSource    String? // Permit, GC email, referral, …
+  internalBidNum String?
+  notes         String?
+  status        String             @default("draft") // label only
+  sheetId       String? // Google Sheet id (after template copy)
+  createdAt     DateTime           @default(now())
   documents  Document[]
   finishes   ProjectFinish[]
   scopeItems ProjectScopeItem[]

@@ -1,63 +1,23 @@
 import Link from "next/link";
-import { SiteHeader } from "@/components/site-header";
-import { createProject } from "@/app/actions";
+import { DashSidebar } from "@/components/dash-sidebar";
+import { NewEstimateWizard } from "@/components/new-estimate-wizard";
 
-export default function NewProjectPage() {
+export const dynamic = "force-dynamic";
+
+export default function NewEstimatePage() {
   return (
-    <main className="wrap">
-      <SiteHeader />
-
-      <div className="page-head">
-        <h1 className="page-title">New bid</h1>
-      </div>
-
-      <form action={createProject} className="form">
-        <div className="field">
-          <label htmlFor="name">
-            Project name <span className="req">*</span>
-          </label>
-          <input
-            id="name"
-            name="name"
-            required
-            autoFocus
-            placeholder="Westside Medical — Tenant Improvement"
-          />
+    <div className="dash">
+      <DashSidebar active="bids" />
+      <main className="dash-main">
+        <div className="dash-top">
+          <div>
+            <h1>New estimate</h1>
+            <p className="dash-sub">Upload a plan set — AI fills the details and prepares the estimate.</p>
+          </div>
+          <Link href="/" className="btn">Cancel</Link>
         </div>
-
-        <div className="field">
-          <label htmlFor="gc">General contractor</label>
-          <input id="gc" name="gc" placeholder="Turner Construction" />
-        </div>
-
-        <div className="field">
-          <label htmlFor="location">Building / location</label>
-          <input id="location" name="location" placeholder="Phoenix, AZ" />
-        </div>
-
-        <div className="field">
-          <label htmlFor="bidDate">Bid due date</label>
-          <input id="bidDate" name="bidDate" type="date" />
-        </div>
-
-        <div className="field">
-          <label htmlFor="notes">Notes / exclusions</label>
-          <textarea
-            id="notes"
-            name="notes"
-            placeholder="Moisture mitigation excluded unless noted…"
-          />
-        </div>
-
-        <div className="form-actions">
-          <button type="submit" className="btn btn-primary">
-            Create bid
-          </button>
-          <Link href="/" className="btn">
-            Cancel
-          </Link>
-        </div>
-      </form>
-    </main>
+        <NewEstimateWizard />
+      </main>
+    </div>
   );
 }

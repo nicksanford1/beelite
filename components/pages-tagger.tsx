@@ -17,22 +17,11 @@ const TAGS = ["untagged", "finish_schedule", "finish_plan", "floor_plan", "specs
 const cell: React.CSSProperties = { padding: "8px 10px", borderBottom: "1px solid var(--border)", verticalAlign: "middle" };
 
 export function PagesTagger({ projectId, documentId, initial }: { projectId: string; documentId: string; initial: Page[] }) {
-  // pre-fill only meaningful scanner suggestions (convenience); everything else stays "untagged"
-  // (so saving doesn't silently turn 100 pages into "ignore" or promote weak guesses)
+  // No scanner guessing: every page starts untagged unless a human already tagged it.
   const [tags, setTags] = useState<Record<string, string>>(() =>
-    Object.fromEntries(
-      initial.map((p) => {
-        const v =
-          p.sheetType !== "untagged"
-            ? p.sheetType
-            : p.suggestedSheetType && p.suggestedSheetType !== "other"
-              ? p.suggestedSheetType
-              : "untagged";
-        return [p.id, v];
-      })
-    )
+    Object.fromEntries(initial.map((p) => [p.id, p.sheetType !== "untagged" ? p.sheetType : "untagged"]))
   );
-  const [preview, setPreview] = useState<number | null>(initial.find((p) => p.suggestedSheetType === "finish_schedule")?.pageNumber ?? null);
+  const [preview, setPreview] = useState<number | null>(null);
   const [savePending, startSave] = useTransition();
   const [readPending, startRead] = useTransition();
 
@@ -61,17 +50,15 @@ export function PagesTagger({ projectId, documentId, initial }: { projectId: str
             </thead>
             <tbody>
               {initial.map((p) => {
-                const suggested = p.suggestedSheetType === "finish_schedule";
                 return (
                   <tr
                     key={p.id}
                     onClick={() => setPreview(p.pageNumber)}
-                    style={{ cursor: "pointer", background: preview === p.pageNumber ? "var(--primary-soft)" : suggested ? "#fff7ed" : undefined }}
+                    style={{ cursor: "pointer", background: preview === p.pageNumber ? "var(--primary-soft)" : undefined }}
                   >
                     <td style={{ ...cell, fontWeight: 600 }}>{p.pageNumber}</td>
                     <td style={cell}>
                       <div>{p.sheetNumber ?? "—"}</div>
-                      {suggested && <div style={{ fontSize: 11, color: "#b45309" }}>finish schedule? ({p.scanScore})</div>}
                     </td>
                     <td style={cell} onClick={(e) => e.stopPropagation()}>
                       <select

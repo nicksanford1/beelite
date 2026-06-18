@@ -1,64 +1,53 @@
-# Codex Review — UX / IA Redesign Proposal
+# Codex Review — Live Bug: Finish Read Never Reaches Anthropic
 
 Reviewed `STATUS.md` against latest committed code:
-`ae264a2`, `a1698a4`, `540a91f`, `09afba4`, `d2d5c82`, `fba67a7`, `5583d84`, `684692f`.
-Static proposal review only; no build/tests run.
+`06f3491`, `91eac56`, `cfc57c6`, `375bf4d`, `86e13a0`, `ae264a2`, `a1698a4`, `540a91f`.
+Static diagnosis/recommendation only; no tests run in this pass.
 
 ## Findings
 
-1. **The workspace direction is right, but it needs a single workflow/status model first.**
-   The current project page derives local state inline (`hasPlan`, `finishCount`, `hasTakeoff`, bid
-   total) and separately stacks tool sections (`app/projects/[id]/page.tsx:19-33`,
-   `app/projects/[id]/page.tsx:58-149`). The Bid page has its own warning source via `computeBid`.
-   If the redesign adds a left rail, overview dashboard, and stage headers without one shared
-   `deriveProjectWorkflow(project)`/workspace query, the stepper counts will drift from the actual
-   bid warnings. Build the workspace shell around one status object: Plans tagged/read, Finishes
-   confirmed, Rates complete using the same `needsRate` predicate, Takeoff approved/nonempty, Scope
-   set, Bid ready/synced.
+1. **The Anthropic request is not the first bottleneck; `readSchedule` still re-downloads the full PDF.**
+   `readSchedule` loads the whole stored plan with `downloadPlan(doc.fileUrl)` before extracting tagged
+   pages (`app/actions.ts:140-147`). `downloadPlan` uses Supabase storage `.download()` and buffers the
+   full blob (`lib/storage.ts:23-26`). The status diagnostics show this full-PDF download stalls before
+   `extractPages` or Anthropic, which explains the empty Anthropic console. Changing Opus/Sonnet or
+   tagging page 14 only will not fix the main path while it still has to pull the original 7.6MB PDF.
 
-2. **Do not implement the Plans thumbnail rail by eagerly calling the existing preview endpoint.**
-   `/api/preview` downloads the whole PDF and renders one page per request (`app/api/preview/route.ts:17-21`);
-   `renderPage` loads the PDF and rasterizes at scale `1.6` (`lib/pdf.ts:76-87`). That is fine for the
-   current one-page-on-click preview, but a thumbnail list for a 108-page plan would hammer storage and
-   PDF rendering if every thumbnail is mounted at once. The viewer should lazy/virtualize thumbnails,
-   render low-res thumbs separately from the selected large page, and cache previews more deliberately.
+2. **The app already has PDF caches, but `readSchedule` cannot use them.**
+   `/api/plan-pdf` keeps an in-process full-PDF cache for browser rendering (`app/api/plan-pdf/route.ts:7-20`),
+   and `/api/preview` has separate PDF/page caches. The extraction server action bypasses those and
+   calls `downloadPlan` directly. This duplicates the slowest operation and wastes the fact that upload
+   and plan viewing already had the bytes. Create one shared server-side plan-byte cache/inflight
+   dedupe helper keyed by document id or file path, use it from upload, plan-pdf, preview, rescan, and
+   readSchedule. That is the fastest unblock for the current Codespace.
 
-3. **Fix sheet labels as presentation first; be cautious about tightening scanner rules.**
-   The proposal is correct that Page N should be primary. Current UI still shows the scanner's
-   `sheetNumber` in the main "Sheet" column (`components/pages-tagger.tsx:57-74`), and the scanner
-   just takes the first regex match from page text (`lib/pdf.ts:12-13`, `lib/pdf.ts:40-42`). Make
-   `Page 7`/`Page 33` the stable identifier and label `sheetNumber` as "scanner guess." Tightening the
-   regex can help, but do not make a sheet-number match required for classification; broken fonts and
-   odd plan title blocks are already part of the real sample set.
+3. **The durable fix is to stop depending on the original PDF download at read time.**
+   At upload time the server already has the full `bytes` in memory and scans every page. Persist
+   derived artifacts then: page text for text-first extraction, and/or per-page PDFs/images for pages
+   that need visual extraction. Then `readSchedule` can combine only the tagged page artifacts or send
+   stored page text, without pulling the multi-MB source PDF again. For this AutoZone file, page 14
+   appears text-heavy enough that a text-first extraction path would likely be much faster and avoid
+   the dense page-13 floor-plan payload.
 
-4. **"Source-page link" on Finishes is not currently a no-data-change UI feature.**
-   `ExtractedFinish` has no per-finish source page field (`lib/anthropic.ts:7-16`). The action stores
-   only the extraction-level `sourcePages` list (`app/actions.ts:131-135`). For this IA pass, either
-   make the Finishes link point to the tagged schedule page set / selected preview, or explicitly add
-   per-finish provenance as a later data/API change. Otherwise the UI will imply precision the data
-   does not have.
+4. **The user-facing failure mode still needs hardening regardless of storage speed.**
+   `readSchedule` has no staged logging, timeout, `try/catch`, or UI-visible error path around
+   download, page extraction, or `extractFinishSchedule` (`app/actions.ts:121-162`). `extractFinishSchedule`
+   creates the Anthropic client with no explicit timeout (`lib/anthropic.ts:43-65`). A slow storage
+   read or model call leaves the button spinning and then apparently "does nothing." Add bounded
+   timeouts, structured logs with document/pages/sub-PDF byte size, and return an error state to the
+   Finishes UI. Only redirect after a saved `Extraction`; if zero finishes are returned, save/log that
+   as an explicit completed empty extraction instead of looking like a failed click.
 
-5. **The two-pane shell needs a mobile/collapsed mode in the plan, not after the fact.**
-   The current app is centered around a `760px` `.wrap` and several horizontally scrolling tables
-   (`app/globals.css:38-42`, `components/takeoff-editor.tsx`, `components/rates-editor.tsx`). A
-   persistent left rail plus wide stage tables will not naturally fit smaller screens. Define the
-   desktop shell as rail + stage pane, but collapse the rail into a top stepper/summary drawer on
-   narrow viewports before styling each stage.
-
-## Checks That Look Correct
-
-- Moving from a flat project detail dump to a guided project workspace addresses the real product
-  problem: users need to know "where am I, what is blocked, what is next."
-- Keeping Standard rates outside the project workspace is correct; it is company-level data, not a
-  bid stage.
-- Putting Scope before Bid in the pipeline is correct now that scope/exclusions feed the proposal
-  sheet assumptions.
-- The visual direction is appropriate for an estimating tool. Implement tabular numerals globally
-  for money/quantity surfaces, then apply the new palette; do not start with paint before the shell.
+5. **Keep page filtering, but do not overfit the diagnosis to page 13.**
+   Page 13 may be too dense to send to Anthropic and should probably be tagged as a floor/finish plan,
+   while page 14 holds the real finish notes. But the confirmed no-usage symptom is explained by the
+   full-PDF download stall. After the download path is fixed, re-test `pages=14` alone with Sonnet;
+   only then decide whether page 13 should be excluded by UI guidance or scanner classification.
 
 ## Recommended Next Step
 
-Build phase 1 as a thin structural slice: create a shared `ProjectWorkspace` shell plus a central
-workflow-status helper, wrap one existing stage without redesigning its internals, and make the rail
-show real blocking counts from that helper. Once that is stable, build the Plans viewer as the first
-deep stage because it solves the user's most painful current screen.
+Implement the quick unblock first: introduce a shared `getPlanBytes(documentId)` cache with timeout and
+inflight dedupe, seed it during `uploadDocument`, and replace direct `downloadPlan` calls in
+`readSchedule`, `rescanDocument`, `/api/plan-pdf`, and `/api/preview`. In the same pass, make
+`readSchedule` return a visible error instead of silently resetting. Then run `GET /api/diag?pages=14`
+and, if it succeeds, remove `app/api/diag/route.ts`.

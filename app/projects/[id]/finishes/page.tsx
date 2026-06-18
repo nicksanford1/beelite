@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { ProjectWorkspace } from "@/components/project-workspace";
 import { FinishReview } from "@/components/finish-review";
-import { readSchedule } from "@/app/actions";
+import { readWholeDoc, passProject } from "@/app/actions";
 import type { ExtractedFinish } from "@/lib/anthropic";
 
 export const dynamic = "force-dynamic";
@@ -36,15 +36,12 @@ export default async function FinishesPage({
   const finishes: ExtractedFinish[] = ext
     ? ((ext.corrected as any)?.finishes ?? (ext.rawOutput as any)?.finishes ?? [])
     : [];
-  // the document that actually has tagged finish-schedule pages (not just documents[0])
-  const taggedDoc = await db.document.findFirst({
-    where: { projectId: id, pages: { some: { sheetType: "finish_schedule" } } },
-    orderBy: { id: "desc" },
-  });
   const firstDoc = project.documents[0];
-  const taggedCount = await db.planSheet.count({
-    where: { document: { projectId: id }, sheetType: "finish_schedule" },
-  });
+
+  const raw = (ext?.rawOutput ?? {}) as { status?: string; reason?: string; evidencePages?: string[] };
+  const status = raw.status ?? (finishes.length ? "found" : ext ? "not_found" : "");
+  const reason = raw.reason ?? "";
+  const evidencePages: string[] = raw.evidencePages ?? [];
 
   return (
     <ProjectWorkspace projectId={id} active="finishes">
@@ -64,43 +61,26 @@ export default async function FinishesPage({
           !firstDoc ? (
             <div className="empty">
               <h2>No plan uploaded</h2>
-              <p>Upload a plan on the bid page first, then come back to read its finishes.</p>
-              <Link href={`/projects/${id}`} className="btn btn-primary">Go to bid</Link>
-            </div>
-          ) : taggedDoc ? (
-            <div className="empty">
-              <h2>Read the finish schedule</h2>
-              <p>{taggedCount} page{taggedCount === 1 ? "" : "s"} tagged. Claude will read just those and pull out the finishes.</p>
-              <form action={readSchedule.bind(null, taggedDoc.id)}>
-                <button type="submit" className="btn btn-primary">Read finishes from {taggedCount} page{taggedCount === 1 ? "" : "s"}</button>
-              </form>
+              <p>Upload a plan first, then read its finishes.</p>
+              <Link href="/projects/new" className="btn btn-primary">Upload a plan</Link>
             </div>
           ) : (
             <div className="empty">
-              <h2>Tag the finish-schedule page first</h2>
-              <p>On a real plan set, the finish schedule is one of many pages. Open Pages, confirm which page(s) hold the finish schedule, then read.</p>
-              <Link href={`/projects/${id}/pages`} className="btn btn-primary">Open Pages</Link>
+              <h2>Read the finishes</h2>
+              <p>Claude reads the whole plan set, finds the finish schedule itself, and pulls out the finishes for you to review. No page tagging needed.</p>
+              <form action={readWholeDoc.bind(null, firstDoc.id)}>
+                <button type="submit" className="btn btn-primary">Read finishes</button>
+              </form>
             </div>
           )
-        ) : finishes.length === 0 ? (
-          <div className="empty">
-            <h2>No finishes found on the tagged page(s)</h2>
-            <p>
-              Claude read the tagged page{taggedCount === 1 ? "" : "s"} but found no finish-schedule
-              entries. That can be correct (some sheets are notes or plans, not a schedule) — or the
-              wrong page is tagged. Re-check Pages, or read again.
-            </p>
-            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-              <Link href={`/projects/${id}/pages`} className="btn">Open Pages</Link>
-              {taggedDoc && (
-                <form action={readSchedule.bind(null, taggedDoc.id)}>
-                  <button type="submit" className="btn btn-primary">Read again</button>
-                </form>
-              )}
-            </div>
-          </div>
-        ) : (
+        ) : finishes.length > 0 ? (
           <>
+            {status === "possible" && (
+              <div className="banner" style={{ margin: "0 0 14px", padding: "10px 14px", border: "1px solid var(--gold)", borderRadius: 6, background: "rgba(224,179,65,0.08)", color: "var(--gold)" }}>
+                These pages may not be a standard finish schedule — review carefully.
+                {evidencePages.length ? ` Looked at: ${evidencePages.join(", ")}.` : ""}
+              </div>
+            )}
             <h2 className="section-title">Review the finishes Claude found ({finishes.length})</h2>
             <p className="detail-meta">
               Edit anything that’s off, then confirm. Flagged rows are low-confidence or out-of-scope.
@@ -108,8 +88,43 @@ export default async function FinishesPage({
             </p>
             <FinishReview projectId={id} planSheetId={sheet!.id} initial={finishes} />
           </>
+        ) : status === "possible" ? (
+          <div className="empty">
+            <h2>Possible finish information found</h2>
+            <p>{reason || "We found pages that may contain flooring information, but not a standard finish schedule."}</p>
+            {evidencePages.length > 0 && <p className="detail-meta">Possible pages: <strong>{evidencePages.join(", ")}</strong></p>}
+            {firstDoc && (
+              <form action={readWholeDoc.bind(null, firstDoc.id)}>
+                <button type="submit" className="btn btn-primary">Read again</button>
+              </form>
+            )}
+          </div>
+        ) : (
+          <div className="empty">
+            <h2>No finish schedule found</h2>
+            <p>{reason || "No flooring finish schedule, room finish schedule, finish legend, or flooring material schedule was found in this plan set. It may be a shell, structural, permit, or incomplete drawing set."}</p>
+            <p className="detail-meta">If you have a separate finishes sheet, upload it; otherwise pass this bid below.</p>
+            {firstDoc && (
+              <form action={readWholeDoc.bind(null, firstDoc.id)}>
+                <button type="submit" className="btn">Read again</button>
+              </form>
+            )}
+          </div>
         )}
       </section>
+
+      <form
+        action={passProject.bind(null, id)}
+        style={{ marginTop: 28, paddingTop: 16, borderTop: "1px solid var(--border)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
+      >
+        <span className="card-meta">Not a flooring job?</span>
+        <input
+          name="reason"
+          placeholder="Reason (e.g. no finish schedule / no flooring scope)"
+          style={{ font: "inherit", fontSize: 13, padding: "6px 10px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)", minWidth: 280, flex: 1, maxWidth: 420 }}
+        />
+        <button type="submit" className="btn" style={{ color: "var(--muted)" }}>Pass / Not a fit</button>
+      </form>
     </ProjectWorkspace>
   );
 }
