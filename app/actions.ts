@@ -3,8 +3,9 @@
 import { db } from "@/lib/db";
 import { getOrCreateDefaultCompany } from "@/lib/company";
 import { uploadPlan, downloadPlan } from "@/lib/storage";
-import { extractFinishSchedule, type ExtractedFinish } from "@/lib/anthropic";
+import { extractFinishSchedule, extractFinishesFromPages, type ExtractedFinish } from "@/lib/anthropic";
 import { scanPdf, extractPages } from "@/lib/pdf";
+import { readPageArtifact } from "@/lib/ingest";
 import { getAuthedClient } from "@/lib/google";
 import { createBidSpreadsheet, updateBidData, readEngineVersion, isCurrentEngine } from "@/lib/sheet-builder";
 import { google } from "googleapis";
@@ -121,9 +122,27 @@ export async function readSchedule(documentId: string) {
   if (!schedulePages.length) return; // nothing tagged — UI guides the user to tag first
 
   const pageNums = schedulePages.map((p) => p.pageNumber);
-  const bytes = await downloadPlan(doc.fileUrl);
-  const subPdf = await extractPages(bytes, pageNums); // just the tagged pages
-  const { finishes, model } = await extractFinishSchedule(subPdf.toString("base64"));
+
+  // v2 read: send ONLY the tagged pages' small stored artifacts (image preferred, text fallback) —
+  // no whole-PDF download. Requires the page to have been ingested.
+  const pageInputs = await Promise.all(
+    schedulePages.map(async (pg) => {
+      const art = readPageArtifact(pg.scanSignals);
+      let imageB64: string | null = null;
+      if (art?.imagePath) {
+        try {
+          imageB64 = (await downloadPlan(art.imagePath)).toString("base64");
+        } catch {
+          imageB64 = null;
+        }
+      }
+      return { imageB64, text: art?.text ?? null };
+    })
+  );
+  if (!pageInputs.some((p) => p.imageB64 || p.text)) {
+    throw new Error("tagged pages are not ingested yet — run ingest on this document first");
+  }
+  const { finishes, model } = await extractFinishesFromPages(pageInputs);
 
   // exactly ONE extraction per document, on the primary (lowest-page) tagged sheet.
   const primary = schedulePages[0];
