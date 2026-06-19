@@ -1,11 +1,11 @@
 /**
  * Intake the scraped NOLA corpus (data/nola/) into the app as ready-to-read Projects.
  *
- * Agent A → Agent B hand-off (see docs/estimator-plan.md §4): for each permit folder that has plan
- * PDFs, create one Project + a Document per PDF, push the bytes to Supabase storage, and run B's
- * `ingestDocument` (per-page text + page image). Marks `Project.status = "ingested"` so B can pick it
- * up. NOLA provenance goes in `Project.notes`. The scanner is intentionally NOT run — the human tags
- * pages (Codex Change 4). Idempotent: a permit already intaken (Project exists) is skipped unless --force.
+ * Sourcing → estimating hand-off: for each permit folder that has plan PDFs, create one Project + a
+ * Document per PDF, push the bytes to Supabase storage, and run `ingestDocument` (per-page text +
+ * page image). Marks `Project.status = "ingested"` so the estimating flow can pick it up. NOLA
+ * provenance goes in `Project.notes`. The scanner is intentionally NOT run — the human tags pages.
+ * Idempotent: a permit already intaken (Project exists) is skipped unless --force.
  *
  *   tsx --env-file=.env scripts/nola-intake.ts
  *   tsx --env-file=.env scripts/nola-intake.ts --only=25-19247-RNVS

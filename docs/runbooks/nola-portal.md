@@ -1,8 +1,12 @@
-# Scraping plans from the NOLA OneStop permit portal
+# NOLA OneStop Plan Retrieval
+
+Status: active
+Owner: engineering
+Last verified: 2026-06-19
 
 How we get the actual plan PDFs (architectural drawings, finish schedules) for a City of New Orleans
 permit — fully automated, no login, no clicking. This is the bridge from the `NolaPermit` table
-(the lead index, see [architecture.md](architecture.md) § *External lead source — NolaPermit*) to
+(the lead index, see [architecture.md](../architecture.md), *External lead source - NolaPermit*) to
 real plan files we can feed into the takeoff system.
 
 **TL;DR — the whole thing is three GETs, no auth:**

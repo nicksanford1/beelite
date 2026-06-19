@@ -67,13 +67,20 @@ model Project {
   gc            String? // GC / Customer
   location      String?
   projectType   String? // e.g. "Office TI", "Restaurant", "Worship / Commercial"
+  architect     String?
   estimator     String?
   leadSource    String? // Permit, GC email, referral, …
   internalBidNum String?
+  // Structured cover-read metadata (from extractProjectInfo) — preserved, not stuffed into notes.
+  owner         String?
+  squareFeet    String? // kept as text: plans say "12,456 SF" / "approx 22,600" — normalize later
+  projectNumber String?
+  issueDate     String? // as printed on the title block; not a real Date yet
   notes         String?
   status        String             @default("draft") // label only
   sheetId       String? // Google Sheet id (after template copy)
   createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @default(now()) @updatedAt
   documents  Document[]
   finishes   ProjectFinish[]
   scopeItems ProjectScopeItem[]
@@ -82,11 +89,13 @@ model Project {
 }
 
 model Document {
-  id        String      @id @default(cuid())
-  projectId String
-  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  fileUrl   String
-  pages     PlanSheet[]
+  id               String      @id @default(cuid())
+  projectId        String
+  project          Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fileUrl          String
+  originalFilename String? // the user's upload name (fileUrl is a storage path — don't parse it)
+  createdAt        DateTime    @default(now())
+  pages            PlanSheet[]
 }
 
 model PlanSheet {

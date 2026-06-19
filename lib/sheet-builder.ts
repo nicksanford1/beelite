@@ -1,7 +1,7 @@
 /**
  * Beelite Google Sheet "bid engine" — reusable builder (v5).
  *
- * Implements claude/v5-math-contract.md: Cost → Sell → Profit → Bid price, material/install split,
+ * Implements docs/contracts/pricing-v5.md: Cost → Sell → Profit → Bid price, material/install split,
  * markup-or-margin lens, needs-rate from EFFECTIVE rates. The Sheet does the math; the app only
  * pushes a bid's INPUTS into the hidden App_* tabs. Verified: the v4 dummy bid still totals $15,205.54.
  */

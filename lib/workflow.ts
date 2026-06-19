@@ -42,7 +42,7 @@ export function deriveWorkflow(project: WorkflowProject): { stages: Stage[]; bid
 
   const defs = [
     {
-      key: "plans" as const, label: "Plans", path: "",
+      key: "plans" as const, label: "Plans", path: "/plans",
       complete: hasPlan && (tagged > 0 || finishes.length > 0), blocked: false,
       note: hasPlan ? `${plural(pages.length, "page")}${tagged ? ` · ${tagged} tagged` : ""}` : "Upload a plan",
     },

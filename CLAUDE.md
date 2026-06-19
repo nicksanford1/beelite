@@ -1,50 +1,49 @@
-# CLAUDE.md — operating memory
+# CLAUDE.md - primary implementer instructions
 
-Beelite: commercial flooring **takeoff & estimating** app. AI reads plans → traceable room-level
-takeoff → syncs into a Google Sheet that does the bid math.
+Beelite is a commercial flooring takeoff and estimating app. AI reads plans, the estimator confirms
+the result, and project inputs sync into a Google Sheet that performs the bid math.
 
-## Working agreement (Claude drives, Codex reviews)
-- **One source of truth per concern** (below). Never restate a fact in two docs — link instead.
-- **Contract changes propagate in the same pass.** When a locked field/formula changes, update
-  every doc that references it that turn, and end the turn naming what it touched.
-- **Review loop via two files:** `STATUS.md` = Claude's briefing (Codex reads it; it opens with
-  explicit "Codex, do this" instructions). `CODEX_REVIEW.md` = Codex's output (Codex overwrites it).
-  Keep STATUS.md a clean current-round snapshot. When the user says **Codex is done / "read it"**,
-  read `CODEX_REVIEW.md` and respond. Don't make the user relay Codex's notes by hand.
-- Flag prerequisites/risks proactively.
+The shared engineering workflow is `CONTRIBUTING.md`. Codex's independent review role is
+`AGENTS.md`. The documentation index and source-of-truth status are in `docs/README.md`.
+
+## Working agreement
+
+- Claude plans and implements; Codex independently reviews when the owner requests it.
+- GitHub issues hold substantial task intent. Pull requests hold acceptance criteria, verification,
+  risks, and review discussion. Do not create repository status or review handoff files.
+- Start implementation from a clean, purpose-named branch. Keep commits coherent and reviewable.
+- For high-risk or cross-cutting work, create an active plan and obtain owner/Codex approval before
+  implementation. Follow the plan lifecycle in `CONTRIBUTING.md`.
+- Add focused tests with behavioral changes and report checks that could not be run.
+- Contract changes must update every affected implementation and reference in the same pull request.
+- Flag prerequisites, destructive operations, security exposure, AI cost, and migration risk early.
 
 ## Source-of-truth map
-| Concern | Owns it |
+
+| Concern | Source |
 |---|---|
-| Product (what/why/scope) | `docs/v1-plan.md` |
-| Technical wiring (stack, schema, sync, prompts) | `docs/architecture.md` |
-| The Google Sheet bid engine (tabs, formulas, fields) | `claude/sheet-template.md` (v4) |
-| Where we are / review handoff | `STATUS.md` |
+| Product scope | `docs/v1-plan.md` |
+| Technical architecture | `docs/architecture.md` |
+| Google Sheet engine | `docs/contracts/sheet-template-v5.md` |
+| Bid pricing math | `docs/contracts/pricing-v5.md` |
+| Engineering process | `CONTRIBUTING.md` |
+| Documentation status | `docs/README.md` |
 
-## Stack & conventions
-- Next.js (App Router) + TypeScript · Postgres via Supabase · Prisma · Anthropic API · Google Sheets/Drive.
-- Repo is **flattened** (app at root, no subfolder).
-- `page.tsx` = screen, `route.ts` = API endpoint. Brains in `lib/`, not screens.
-- Naming: routes kebab-case · components PascalCase · lib kebab-case · Prisma models PascalCase · env SCREAMING_SNAKE.
+## Stack and conventions
 
-## Architecture in one line
-Google Sheets is the **bid engine**; the app is the **capture / review / sync** layer. App writes
-only hidden `App_*` tabs (stable order, no reorder/delete); visible tabs are formulas + estimator
-`override` columns. DB stores inputs, not computed totals.
+- Next.js App Router, TypeScript, Postgres/Supabase, Prisma, Anthropic, and Google Sheets/Drive.
+- The application lives at the repository root; do not move it into `src/` without an approved need.
+- `page.tsx` is a screen and `route.ts` is an API endpoint. Business logic belongs in `lib/`, not
+  large page components or server-action files.
+- Route and file names are kebab-case. Exported React components and Prisma models are PascalCase.
+  Environment variables are SCREAMING_SNAKE_CASE.
+- Prefer existing project patterns over new frameworks or speculative abstractions.
 
-## Key decisions (newest first)
-- **v5 pricing model** (`claude/v5-math-contract.md`): bid is **cost → profit → price**. Install is
-  always a per-unit sub rate; `materialSource` = `elite_furnishes | owner_furnishes` (owner → material $0).
-  Removed `installMode=pending` and `furnishType=turnkey_sub`. Verified: v4 dummy bid still = $15,205.54.
-- **Profit lens** `profitPctMode` = `markup | margin` (default margin); `materialProfitPct` +
-  `installProfitPct` (renamed from `pct`/`subMarkupPct`). Summary shows profit $, blended markup %, margin %.
-  Profit excludes freight + tax. Margin guarded `0 ≤ pct < 1`.
-- **needs_rate** from EFFECTIVE rates (override clears it); company rate library seeds new bids
-  (exact `company+code` match, snapshot-at-confirm, override wins; no auto-price from "similar").
-- **taxMode**: `material_cost_only | material_sell_only | total_sell_plus_freight` (unchanged).
-- **Rates** use default/override/effective (hidden `App_Rates` + visible `Rates`); resync can't clobber edits.
-- **Google Sheet sync** via OAuth (`drive.file`): one Sheet per bid, app is the master index.
-- Repo flattened; `website/` removed (estimator-only).
+## Locked architecture
 
-## Current build step
-See `STATUS.md`. (Now: v5 pricing redesign built + verified; Sheet formatted as a bid statement.)
+Google Sheets is the bid engine; the app is the capture, review, and sync layer. The app writes only
+hidden `App_*` tabs. Visible Sheet tabs contain formulas and estimator overrides. The database stores
+inputs and review state, not computed bid totals.
+
+Pricing follows `docs/contracts/pricing-v5.md`: cost -> profit -> price. The locked regression example
+must continue to produce `$15,205.54` in both the in-app estimator and generated Sheet.

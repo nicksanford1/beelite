@@ -1,7 +1,7 @@
 # Estimate flow — agreed build spec (v1)
 
-**Status:** agreed by owner; GPT proposed, Claude concurs. This supersedes the A-vs-B fork in
-`finish-read-flow-recommendation.md` — the answer is **Proposal C**.
+**Status:** agreed by owner; GPT proposed, Claude concurs. This resolved an earlier A-vs-B fork —
+the answer is **Proposal C**.
 
 **Guiding principle:**
 > The user uploads plans. AI organizes the bid. The user verifies the output, enters quantities, and

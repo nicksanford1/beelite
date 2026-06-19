@@ -1,6 +1,6 @@
 import type { ProjectFinish, TakeoffLine, EstimateSettings } from "@prisma/client";
 
-// In-app bid PREVIEW. Mirrors claude/v5-math-contract.md (the Google Sheet stays the authoritative
+// In-app bid PREVIEW. Mirrors docs/contracts/pricing-v5.md (the Google Sheet stays the authoritative
 // calculator; this is the read-only preview). Cost → Sell → Profit → Bid price.
 
 export type BidLine = {

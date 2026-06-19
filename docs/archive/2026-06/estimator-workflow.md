@@ -25,7 +25,7 @@ Two hard rules:
 
 ## Part A — The corpus pipeline (permits → labeled plans)
 
-The NOLA permit source ([nola-portal-scraping.md](nola-portal-scraping.md)) gives us real, local,
+The NOLA permit source ([nola-portal.md](../../runbooks/nola-portal.md)) gives us real, local,
 varied commercial plans — the production distribution — plus the ability to hand-label ground truth.
 Keep batches small and human-gated.
 

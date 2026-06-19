@@ -7,6 +7,8 @@ sync into a Google Sheet the estimator already trusts.
 Single project, app lives at the repo root.
 
 ## Docs
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — engineering workflow: planning, branches, PRs, and reviews
+- [`docs/README.md`](docs/README.md) — documentation index and source-of-truth status
 - [`docs/v1-plan.md`](docs/v1-plan.md) — what we're building and why (product spec)
 - [`docs/architecture.md`](docs/architecture.md) — how it's wired: stack, schema, Sheets contract, prompts
 

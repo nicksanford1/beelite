@@ -99,6 +99,22 @@ export default async function FinishesPage({
               </form>
             )}
           </div>
+        ) : status === "processing" ? (
+          <div className="empty">
+            <h2>Reading the plan set…</h2>
+            <p>Claude is scanning the whole set for a flooring finish schedule. This takes a moment.</p>
+            <Link href={`/projects/${id}/finishes`} className="btn btn-primary">Refresh</Link>
+          </div>
+        ) : status === "error" ? (
+          <div className="empty">
+            <h2>The finish read failed</h2>
+            <p>{reason || "Something went wrong reading the plan set. Try again."}</p>
+            {firstDoc && (
+              <form action={readWholeDoc.bind(null, firstDoc.id)}>
+                <button type="submit" className="btn btn-primary">Re-read finishes</button>
+              </form>
+            )}
+          </div>
         ) : (
           <div className="empty">
             <h2>No finish schedule found</h2>

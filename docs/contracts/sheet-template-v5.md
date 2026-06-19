@@ -1,6 +1,6 @@
 # Beelite — Google Sheet Template Spec (the bid engine) · v5
 
-**The math contract is `claude/v5-math-contract.md`. The exact, verified formulas live in
+**The math contract is `pricing-v5.md`. The exact, verified formulas live in
 `lib/sheet-builder.ts` (the app builds every bid's Sheet from there).** This file is the **tab/field
 map** — what each tab holds and how the app feeds it. Don't restate formulas here; link to the code.
 
@@ -59,7 +59,7 @@ totals $15,205.54** (elite_furnishes, markup, both pct 0.15) — enforced by `sc
 - **`Assumptions`** — auto scope list (col A) + manual notes (col C).
 
 **Formulas:** see `lib/sheet-builder.ts` (`ratesBtoQ`, `estBtoS`, `bidBlock`, `summaryStatement`,
-`summaryChecks`) and the derivations in `claude/v5-math-contract.md` §2–§8.
+`summaryChecks`) and the derivations in `pricing-v5.md` §2–§8.
 
 ---
 

@@ -1,9 +1,9 @@
-d# Bid Engine v5 — Math Contract (proposed)
+# Bid Engine v5 — Math Contract (proposed)
 
 The precise math + field changes for the cost→profit→price redesign. Written **before** code so the
-Sheet (`claude/sheet-template.md`), the app mirror (`lib/estimate.ts`), and the schema all implement
+Sheet (`sheet-template-v5.md`), the app mirror (`lib/estimate.ts`), and the schema all implement
 the *same* contract. Supersedes the v4 pricing concepts (`installMode=pending`, `furnishType=turnkey`).
-Once this is stable: fold into `sheet-template.md` (→ v5), then schema + `lib/sheet-builder.ts`.
+Once this is stable: fold into `sheet-template-v5.md` (→ v5), then schema + `lib/sheet-builder.ts`.
 
 **Status: rev 2 — Codex-reviewed twice, core math approved, all findings folded in. Ready to implement.**
 Finding #s noted inline reference the two CODEX_REVIEW rounds (pricing proposal, then this contract).

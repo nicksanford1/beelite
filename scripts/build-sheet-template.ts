@@ -1,5 +1,5 @@
 /**
- * Builds the Beelite Google Sheet "bid engine" template from claude/sheet-template.md (v4).
+ * Builds the Beelite Google Sheet "bid engine" template from docs/contracts/sheet-template-v5.md.
  * Creates 9 tabs (4 visible + 5 hidden App_*), all formulas, named ranges, and dummy data,
  * shares it to your Google account, and reads back the Bid Total (should be 15205.54).
  *

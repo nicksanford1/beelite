@@ -4,7 +4,7 @@
  * For each permit (default: NolaPermit rows with leadStatus="saved"), resolve its portal link to the
  * permit's ref code, fetch the permit page, parse the inline document list, and download the
  * plan-shaped PDFs into data/nola/<permitNum>/ alongside a manifest.json listing EVERY document found
- * (kept or skipped) so nothing is silently lost. See docs/nola-portal-scraping.md for the full recipe.
+ * (kept or skipped) so nothing is silently lost. See docs/runbooks/nola-portal.md for the full recipe.
  *
  *   npm run nola:docs
  *   tsx --env-file=.env scripts/nola-docs.ts --permit=25-19247-RNVS
@@ -23,19 +23,21 @@ process.loadEnvFile(".env");
 import { mkdirSync, existsSync, writeFileSync } from "fs";
 import { join } from "path";
 import { PrismaClient } from "@prisma/client";
+import {
+  HOST,
+  Cooldown,
+  fetchDoc,
+  fetchText,
+  isPlan,
+  parseDocs,
+  refFromLink,
+  safe,
+  sleep,
+  type PortalDoc,
+} from "../lib/nola-portal";
 
 const db = new PrismaClient();
-const HOST = "https://onestopapp.nola.gov";
 const ROOT = join(process.cwd(), "data", "nola");
-const UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
-
-// Keep drawing/plan PDFs; drop the paperwork (permits, receipts, contracts, approvals, etc.).
-// NOTE: names are normalized (underscores → spaces) before testing, so "WELLONS_CD SET" matches \bcd\b.
-// (RCC) is the city's plan-review stamp on the filename — the single most reliable "this is a
-// reviewed drawing set" signal; almost nothing but real plans carries it.
-const KEEP = /\b(rcc|drawing|drawings|plan|plans|arch|architect|mep|floor|structural|elev|detail|schedule|cd|cd ?set|construction doc\w*|submittal|permit set|bid ?set|interiors?|filing|sealed|stamped|schematic)\b|a-?\d/i;
-const DROP = /\b(receipt|building permit|contract|act of sale|articles|approval|license|authoriz|classification|fire marshal|insurance|invoice|affidavit|recorded|organization)\b/i;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const THROTTLE_MS = 1200; // polite gap between permits (portal 429s under fast bursts)
 
 function arg(name: string, fallback: string): string {
@@ -44,79 +46,7 @@ function arg(name: string, fallback: string): string {
 }
 const hasFlag = (name: string) => process.argv.includes(`--${name}`);
 
-/** OneStop link → ref code (== the SearchString token). */
-function refFromLink(link: string | null): string | null {
-  if (!link) return null;
-  const m = /SearchString=([A-Za-z0-9]+)/i.exec(link);
-  return m ? m[1] : null;
-}
-
-/** Safe filesystem name: strip path separators / odd chars, collapse whitespace. */
-function safe(name: string): string {
-  return (
-    name
-      .replace(/&amp;/g, "&")
-      .replace(/[\/\\]+/g, "-")
-      .replace(/[^a-zA-Z0-9 ._()&,-]+/g, "_")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 180) || "file"
-  );
-}
-
-type Doc = { docId: string; name: string; date: string | null; kept: boolean; bytes?: number; saved?: string };
-
-/** Parse the permit page HTML → every document (filename, date, DocID) in its list. */
-function parseDocs(html: string): Omit<Doc, "kept">[] {
-  const out: Omit<Doc, "kept">[] = [];
-  const re = /<li>\s*([\s\S]*?)\s*<a\b[^>]*onclick=['"]?DocRedirect\((\d+)\)/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html))) {
-    let text = m[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
-    // trailing " (M/D/YYYY)" is the upload date, not part of the filename
-    const dm = /\s*\((\d{1,2}\/\d{1,2}\/\d{4})\)\s*$/.exec(text);
-    const date = dm ? dm[1] : null;
-    if (dm) text = text.slice(0, dm.index).trim();
-    out.push({ docId: m[2], name: text, date });
-  }
-  return out;
-}
-
-/** Thrown when the portal signals a long cooldown — stop the run rather than sleep/hammer. */
-class Cooldown extends Error {
-  constructor(public secs: number) {
-    super(`portal cooldown ${secs}s`);
-  }
-}
-
-/** GET with backoff on HTTP 429. Caps each wait at 60s; bails the whole run on a long cooldown. */
-async function getWithRetry(url: string, tries = 4): Promise<Response | null> {
-  for (let i = 0; i < tries; i++) {
-    const res = await fetch(url, { headers: { "User-Agent": UA } });
-    if (res.status !== 429) return res;
-    const ra = Number(res.headers.get("retry-after")) || 0; // seconds
-    if (ra > 120) throw new Cooldown(ra); // hard cooldown (e.g. 3600s) — don't block/hammer, stop
-    const wait = Math.min(ra * 1000 || 4000 * 2 ** i, 60_000); // cap 60s
-    console.log(`     · 429 — backing off ${Math.round(wait / 1000)}s`);
-    await sleep(wait);
-  }
-  return null;
-}
-
-async function fetchText(url: string): Promise<string> {
-  const res = await getWithRetry(url);
-  if (!res || !res.ok) throw new Error(`GET ${url} → HTTP ${res?.status ?? "retry-exhausted"}`);
-  return res.text();
-}
-
-/** Download a document by DocID. Returns the buffer, or null if it isn't a PDF. */
-async function fetchDoc(docId: string): Promise<Buffer | null> {
-  const res = await getWithRetry(`${HOST}/GetDocument.aspx?DocID=${docId}`);
-  if (!res || !res.ok) return null;
-  const buf = Buffer.from(await res.arrayBuffer());
-  // Their Content-Type is the buggy "application/application/pdf"; trust the magic bytes instead.
-  return buf.subarray(0, 5).toString("latin1") === "%PDF-" ? buf : null;
-}
+type Doc = PortalDoc & { kept: boolean; bytes?: number; saved?: string };
 
 async function main() {
   const keepMode = arg("keep", "plans"); // plans | all
@@ -181,10 +111,10 @@ async function main() {
       continue;
     }
 
-    const classified: Doc[] = docs.map((d) => {
-      const norm = d.name.replace(/_+/g, " "); // "WELLONS_CD SET" → "WELLONS CD SET" so \bcd\b matches
-      return { ...d, kept: keepMode === "all" ? true : KEEP.test(norm) && !DROP.test(norm) };
-    });
+    const classified: Doc[] = docs.map((d) => ({
+      ...d,
+      kept: keepMode === "all" ? true : isPlan(d.name),
+    }));
     const toGet = listOnly ? [] : classified.filter((d) => d.kept); // list mode: inventory only
 
     mkdirSync(dir, { recursive: true });

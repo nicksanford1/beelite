@@ -85,7 +85,6 @@ export async function analyzeUpload(formData: FormData): Promise<{ projectId?: s
   }
 
   const company = await getOrCreateDefaultCompany();
-  const noteBits = [info.scope, info.squareFeet && `~${info.squareFeet}`, info.architect && `Architect: ${info.architect}`].filter(Boolean);
   const project = await db.project.create({
     data: {
       companyId: company.id,
@@ -93,13 +92,19 @@ export async function analyzeUpload(formData: FormData): Promise<{ projectId?: s
       gc: info.contractor || null,
       location: info.address || null,
       projectType: info.useType || null,
-      notes: noteBits.join(" · ") || null,
+      // structured cover-read metadata → real columns (not notes)
+      owner: info.owner || null,
+      architect: info.architect || null,
+      squareFeet: info.squareFeet || null,
+      projectNumber: info.projectNumber || null,
+      issueDate: info.issueDate || null,
+      notes: info.scope || null, // notes = the one-line scope; messy notes are the user's to add
     },
   });
   const safeName = file.name.replace(/[^\w.\-]+/g, "_");
   const path = `${project.id}/${Date.now()}-${safeName}`;
   await uploadPlan(path, bytes, file.type || "application/pdf");
-  const doc = await db.document.create({ data: { projectId: project.id, fileUrl: path } });
+  const doc = await db.document.create({ data: { projectId: project.id, fileUrl: path, originalFilename: file.name } });
 
   // full page-by-page ingest in the background — don't block the confirm step
   void ingestDocument(doc.id, { bytes }).catch((e) => console.error("[analyzeUpload] background ingest failed:", e));
@@ -117,13 +122,26 @@ export async function confirmProject(projectId: string, formData: FormData) {
       gc: str(formData.get("gc")),
       location: str(formData.get("location")),
       projectType: str(formData.get("projectType")),
+      architect: str(formData.get("architect")),
       estimator: str(formData.get("estimator")),
-      leadSource: str(formData.get("leadSource")),
-      internalBidNum: str(formData.get("internalBidNum")),
       bidDate: bidDateRaw ? new Date(bidDateRaw) : null,
       notes: str(formData.get("notes")),
     },
   });
+
+  // Create the bid's Google Sheet up front so the estimate is synced from the start.
+  // Best-effort: if Google isn't connected (or the call fails), the estimate is still
+  // created and the user syncs later from the estimate screen. syncBidToSheet never throws.
+  await syncBidToSheet(projectId);
+
+  // Auto-start the whole-PDF finish read so it's ready (or close) by the time the user reaches the
+  // Overview. Mark "processing" synchronously; run the read in the background — never block the redirect.
+  const doc = await db.document.findFirst({ where: { projectId }, orderBy: { createdAt: "desc" }, select: { id: true } });
+  if (doc) {
+    await markFinishReadProcessing(doc.id);
+    void runGuardedRead(doc.id).catch((e) => console.error("[confirmProject] auto finish read failed:", e));
+  }
+
   revalidatePath("/");
   redirect(`/projects/${projectId}`);
 }
@@ -137,7 +155,7 @@ export async function uploadDocument(projectId: string, formData: FormData) {
   const path = `${projectId}/${Date.now()}-${safeName}`;
   await uploadPlan(path, bytes, file.type || "application/pdf");
 
-  const doc = await db.document.create({ data: { projectId, fileUrl: path } });
+  const doc = await db.document.create({ data: { projectId, fileUrl: path, originalFilename: file.name } });
 
   // Ingest every page → per-page text + page image (no scanner, no guessing). Reuses the bytes we
   // already have so it doesn't re-download. This is what makes the uploaded plan readable.
@@ -229,55 +247,66 @@ export async function passProject(projectId: string, formData: FormData) {
   redirect("/");
 }
 
-// Whole-document read: AI finds the schedule across the whole set and extracts finishes (no tagging).
-// The human verifies the finishes on /finishes, same as the cover-detail step.
-export async function readWholeDoc(documentId: string) {
-  const doc = await db.document.findUnique({
-    where: { id: documentId },
-    include: { pages: { orderBy: { pageNumber: "asc" }, take: 1 } },
-  });
-  if (!doc) return;
-  const projectId = doc.projectId;
-  let errCode: string | null = null;
+// ── Whole-PDF guarded finish read ────────────────────────────
+// The Extraction attaches to the page-1 PlanSheet; create a stub if ingest hasn't reached it yet.
+async function primarySheet(documentId: string) {
+  const existing = await db.planSheet.findFirst({ where: { documentId }, orderBy: { pageNumber: "asc" } });
+  return (
+    existing ??
+    (await db.planSheet.upsert({
+      where: { documentId_pageNumber: { documentId, pageNumber: 1 } },
+      create: { documentId, pageNumber: 1, sheetType: "untagged" },
+      update: {},
+    }))
+  );
+}
 
+// Mark the read in-progress so Overview/Plans show "Processing" immediately (auto-start case).
+export async function markFinishReadProcessing(documentId: string) {
+  const primary = await primarySheet(documentId);
+  await db.extraction.deleteMany({ where: { planSheet: { documentId, id: { not: primary.id } } } });
+  await db.extraction.upsert({
+    where: { planSheetId: primary.id },
+    create: { planSheetId: primary.id, model: "(reading)", rawOutput: { status: "processing", whole: true }, confidence: [] },
+    update: { model: "(reading)", rawOutput: { status: "processing", whole: true }, corrected: undefined },
+  });
+}
+
+// Run the guarded whole-PDF read and save the 3-state result (or an "error" status). Never throws —
+// a failed read is recorded so the UI can show "Error" + offer Re-read, not hang.
+export async function runGuardedRead(documentId: string) {
+  const doc = await db.document.findUnique({ where: { id: documentId } });
+  if (!doc) return;
+  const primary = await primarySheet(documentId);
   try {
     const url = await signedUrl(doc.fileUrl, 900); // Anthropic fetches it — we never download the big file
     const { result, model } = await readFinishesGuarded(url);
-    const finishes = result.finishes;
-
-    // Extractions attach to a PlanSheet; for a whole-doc read use page 1 (create a stub if ingest
-    // hasn't reached it yet).
-    const primary =
-      doc.pages[0] ??
-      (await db.planSheet.upsert({
-        where: { documentId_pageNumber: { documentId, pageNumber: 1 } },
-        create: { documentId, pageNumber: 1, sheetType: "untagged" },
-        update: {},
-      }));
-
-    await db.extraction.deleteMany({ where: { planSheet: { documentId, id: { not: primary.id } } } });
-    const confidence = finishes.map((f) => ({ code: f.code, confidence: f.confidence }));
-    const rawOutput = {
-      status: result.status,
-      confidence: result.confidence,
-      reason: result.reason,
-      evidencePages: result.evidencePages,
-      finishes,
-      whole: true,
-    };
+    const confidence = result.finishes.map((f) => ({ code: f.code, confidence: f.confidence }));
+    const rawOutput = { ...result, whole: true };
     await db.extraction.upsert({
       where: { planSheetId: primary.id },
       create: { planSheetId: primary.id, model, rawOutput, confidence },
       update: { model, rawOutput, corrected: undefined },
     });
   } catch (e) {
-    console.error("[readWholeDoc] failed:", e);
-    errCode = "read_failed";
+    console.error("[runGuardedRead] failed:", e);
+    const rawOutput = { status: "error", reason: "The finish read failed — try again.", finishes: [], whole: true };
+    await db.extraction.upsert({
+      where: { planSheetId: primary.id },
+      create: { planSheetId: primary.id, model: "(error)", rawOutput, confidence: [] },
+      update: { model: "(error)", rawOutput },
+    });
   }
+}
 
-  if (errCode) redirect(`/projects/${projectId}/finishes?err=${errCode}`);
-  revalidatePath(`/projects/${projectId}/finishes`);
-  redirect(`/projects/${projectId}/finishes`);
+// Manual "Read Finishes" / "Re-read" button: run synchronously, then land on /finishes.
+export async function readWholeDoc(documentId: string) {
+  const doc = await db.document.findUnique({ where: { id: documentId }, select: { projectId: true } });
+  if (!doc) return;
+  await runGuardedRead(documentId);
+  revalidatePath(`/projects/${doc.projectId}/finishes`);
+  revalidatePath(`/projects/${doc.projectId}`);
+  redirect(`/projects/${doc.projectId}/finishes`);
 }
 
 /** Rescan an existing document's pages (recovery if upload-time scan failed/changed). Resets tags. */

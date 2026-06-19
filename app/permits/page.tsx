@@ -2,11 +2,13 @@ import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { SiteHeader } from "@/components/site-header";
-import { setLeadStatus } from "./actions";
+import { PermitSelectAll } from "@/components/permit-select-all";
+import { CopyLeadsForClaude } from "@/components/permit-copy-for-claude";
+import { setLeadStatus, setLeadStatusBulk } from "./actions";
 
 // Browse + triage the ingested City of New Orleans permits (NolaPermit). Filters drive a GET form so
 // the table is shareable/bookmarkable; the per-row Save/Hide buttons are server-action forms that
-// re-render in place. See docs/architecture.md (§ External lead source — NolaPermit).
+// re-render in place. See docs/architecture.md (External lead source - NolaPermit).
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +25,12 @@ const FLOORING_CODES: { code: string; label: string }[] = [
   { code: "ACCS", label: "Accessory structure" },
 ];
 const PRESET_CODES = ["RNVN", "RNVS", "NEWC", "CUSE"]; // the strongest flooring leads
+const FLOORING_CODE_VALUES = FLOORING_CODES.map((c) => c.code); // the curated set, applied by default
+
+// Trade-only scope we never want in the flooring lead views: any permit whose description mentions
+// these is hidden from every view/filter/count below. Substring, case-insensitive — "electric"
+// catches electric / electrical / electrician. Add keywords here to hide more trades.
+const HIDE_DESCRIPTION_KEYWORDS = ["electric"];
 
 // Default min est. cost — hide small jobs (< $100k) unless the estimator opts back in via `min=0`.
 const DEFAULT_MIN_COST = 100_000;
@@ -59,9 +67,19 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
   const page = Math.max(1, parseInt(one(sp.page) || "1", 10) || 1);
 
   const where: Prisma.NolaPermitWhereInput = {};
+  // Always drop trade-only descriptions (electrical, etc.). Keep rows with no description — they
+  // don't mention the keyword. AND-combines with the rest of the filters (incl. the search OR).
+  where.AND = HIDE_DESCRIPTION_KEYWORDS.map((kw) => ({
+    OR: [
+      { description: null },
+      { description: { not: { contains: kw }, mode: "insensitive" as const } },
+    ],
+  }));
   if (work) where.workClassMapped = work;
   if (cls) where.permitClassMapped = cls;
-  if (codes.length) where.permitType = { in: codes };
+  // Default to the curated flooring codes when nothing is ticked, so SERV/HVAC/PLMB/etc. never
+  // show up uninvited. Ticking boxes narrows to that selection instead.
+  where.permitType = { in: codes.length ? codes : FLOORING_CODE_VALUES };
   if (minCost > 0) where.estProjectCost = { gte: minCost }; // nulls (unknown cost) drop out too
   if (q) {
     where.OR = [
@@ -72,9 +90,9 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
     ];
   }
   if (view === "active") where.leadStatus = { not: "dismissed" };
-  else if (view !== "all") where.leadStatus = view; // new | saved | dismissed
+  else if (view !== "all") where.leadStatus = view; // new | saved | downloaded | dismissed
 
-  const [rows, total, savedTotal, classGroups] = await Promise.all([
+  const [rows, total, savedTotal, downloadedTotal, classGroups] = await Promise.all([
     db.nolaPermit.findMany({
       where,
       orderBy: { issueDate: { sort: "desc", nulls: "last" } },
@@ -83,6 +101,7 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
     }),
     db.nolaPermit.count({ where }),
     db.nolaPermit.count({ where: { leadStatus: "saved" } }),
+    db.nolaPermit.count({ where: { leadStatus: "downloaded" } }),
     db.nolaPermit.groupBy({ by: ["permitClassMapped"], _count: true, orderBy: { permitClassMapped: "asc" } }),
   ]);
 
@@ -135,6 +154,10 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
           {" · "}
           <Link href={buildHref({ view: "saved", code: codes, page: "" })} style={{ color: "var(--marking)", fontWeight: 600 }}>
             <span className="mono">{savedTotal.toLocaleString("en-US")}</span> saved ⚑
+          </Link>
+          {" · "}
+          <Link href={buildHref({ view: "downloaded", code: codes, page: "" })} style={{ color: "var(--ok, #6bbf73)", fontWeight: 600 }}>
+            <span className="mono">{downloadedTotal.toLocaleString("en-US")}</span> plans ⬇
           </Link>
         </span>
       </div>
@@ -193,6 +216,7 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
             <option value="active">Active (hide dismissed)</option>
             <option value="new">New / untriaged</option>
             <option value="saved">Saved ⚑</option>
+            <option value="downloaded">Plans downloaded ⬇</option>
             <option value="dismissed">Dismissed</option>
             <option value="all">All</option>
           </select>
@@ -217,10 +241,22 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
         </div>
       </form>
 
+      {/* Bulk triage bar — the row checkboxes below submit into this form via form="bulkTriage". */}
+      <form id="bulkTriage" action={setLeadStatusBulk} className="bulk-bar">
+        <span className="bulk-label">With selected:</span>
+        <button type="submit" name="status" value="saved" className="btn-mini save">⚑ Save</button>
+        <button type="submit" name="status" value="downloaded" className="btn-mini plans">⬇ Plans</button>
+        <button type="submit" name="status" value="dismissed" className="btn-mini hide">✕ Hide</button>
+        <button type="submit" name="status" value="new" className="btn-mini reset">↺ Reset</button>
+        <span className="bulk-sep" aria-hidden="true" />
+        <CopyLeadsForClaude />
+      </form>
+
       <div className="table-wrap">
         <table className="ptable">
           <thead>
             <tr>
+              <th className="check-col"><PermitSelectAll /></th>
               <th>Lead</th>
               <th>Code</th>
               <th>Work</th>
@@ -235,17 +271,34 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={9} style={{ textAlign: "center", padding: "48px 16px", color: "var(--muted)" }}>
+                <td colSpan={10} style={{ textAlign: "center", padding: "48px 16px", color: "var(--muted)" }}>
                   No permits match these filters.
                 </td>
               </tr>
             ) : (
               rows.map((r) => (
                 <tr key={r.id} data-lead={r.leadStatus}>
+                  <td className="check-col">
+                    <input
+                      type="checkbox"
+                      name="ids"
+                      value={r.id}
+                      form="bulkTriage"
+                      data-permit={r.permitNum}
+                      data-addr={r.originalAddress1 ?? ""}
+                      aria-label="Select this permit"
+                    />
+                  </td>
                   <td>
                     <details className={`lead-menu ${r.leadStatus}`}>
                       <summary className="lead-menu-btn" title="Triage this lead">
-                        {r.leadStatus === "saved" ? "⚑ Saved" : r.leadStatus === "dismissed" ? "Hidden" : "Triage"}
+                        {r.leadStatus === "saved"
+                          ? "⚑ Saved"
+                          : r.leadStatus === "downloaded"
+                            ? "⬇ Plans"
+                            : r.leadStatus === "dismissed"
+                              ? "Hidden"
+                              : "Triage"}
                         <span className="caret">▾</span>
                       </summary>
                       <div className="lead-menu-pop">
@@ -254,6 +307,13 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
                             <input type="hidden" name="id" value={r.id} />
                             <input type="hidden" name="status" value="saved" />
                             <button type="submit" className="btn-mini save" title="Good lead — save to scrape later">⚑ Save</button>
+                          </form>
+                        )}
+                        {r.leadStatus !== "downloaded" && (
+                          <form action={setLeadStatus}>
+                            <input type="hidden" name="id" value={r.id} />
+                            <input type="hidden" name="status" value="downloaded" />
+                            <button type="submit" className="btn-mini plans" title="Plans pulled from the portal">⬇ Plans downloaded</button>
                           </form>
                         )}
                         {r.leadStatus !== "dismissed" && (
@@ -279,7 +339,16 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
                     {r.originalAddress1 ?? "—"}
                     {r.originalZip ? <span style={{ color: "var(--muted)" }}> · {r.originalZip}</span> : null}
                   </td>
-                  <td className="desc" title={r.description ?? undefined}>{r.description ?? "—"}</td>
+                  <td className="desc">
+                    {r.description ? (
+                      <>
+                        <span className="desc-text">{r.description}</span>
+                        <span className="desc-tip">{r.description}</span>
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td>{r.permitClass ?? "—"}</td>
                   <td className="num">{fmtMoney(r.estProjectCost)}</td>
                   <td className="mono" style={{ color: "var(--muted)" }}>{fmtDate(r.issueDate)}</td>

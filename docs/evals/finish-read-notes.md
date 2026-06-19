@@ -1,4 +1,8 @@
-# Read notes — observations before tweaking the prompt
+# Finish-Read Evaluation Notes
+
+Status: active
+Owner: product owner
+Last verified: 2026-06-19
 
 Running log of what the finish-read gets right/wrong on real plans. Gather several, THEN change the
 prompt once (one variable at a time). Don't tweak per-plan.
