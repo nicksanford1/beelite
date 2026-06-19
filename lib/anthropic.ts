@@ -4,16 +4,33 @@ import { FINISH_SCHEDULE_PROMPT } from "./prompts/finish-schedule";
 // Recommended default model (best accuracy). Tier down later if cost matters.
 export const EXTRACTION_MODEL = "claude-opus-4-8";
 
+// Wide on purpose: the model picks the closest category, and may use unknown_flooring_related / other
+// when unsure rather than being forced into a narrow box (then the user decides scope on /finishes).
+export type FinishCategory =
+  | "resilient" | "rubber" | "lvt_lvp" | "vct" | "carpet" | "tile" | "turf" | "sheet_vinyl"
+  | "epoxy" | "polished_concrete" | "sealed_concrete" | "wood" | "laminate"
+  | "base" | "transition" | "stair" | "prep" | "moisture_mitigation" | "adhesive" | "accessory"
+  | "unknown_flooring_related" | "other";
+
 export type ExtractedFinish = {
   code: string;
   type: string;
   description: string;
   unit: "SF" | "LF" | "EA" | "SY" | "other";
-  category: "floor" | "base" | "transition" | "wall" | "other";
-  includedInFlooringScope: boolean;
+  category: FinishCategory;
+  includedInFlooringScope: boolean; // canonical scope flag downstream; model returns "inScope"
   reason: string;
   confidence: number;
-  sourcePage?: string; // where in the set it was found (e.g. "A2.4" or "Page 2")
+  sourcePage?: string; // where in the set it was found (e.g. "A2.4")
+  // richer, optional — captured when present, never required
+  manufacturer?: string;
+  product?: string;
+  color?: string;
+  size?: string;
+  thickness?: string;
+  needsReview?: boolean; // model unsure this belongs in flooring scope → user verifies
+  sourceText?: string;
+  notes?: string;
 };
 
 // Structured-output JSON schema (no min/max — not supported by structured outputs).
@@ -123,11 +140,20 @@ export async function extractFinishesFromPages(
 }
 
 export type ScheduleStatus = "found" | "possible" | "not_found";
+export type RoleConfidence = "low" | "medium" | "high";
+export type PageRole = { sheets: string[]; confidence: RoleConfidence }; // sheets it observed in this role
+// Honest page-role observations from the SAME whole-PDF read (Option C) — Claude reports what it saw,
+// each with a confidence. Not a separate scan, not page-tagging. Empty/low when it can't tell.
+export type PageRoles = { drawingIndex: PageRole; floorPlans: PageRole; specs: PageRole };
+// Per-page sheet label read from each page's title block (sheet number + sheet title), in page order.
+export type SheetLabel = { page: number; sheet: string; title: string };
 export type FinishReadResult = {
   status: ScheduleStatus;
   confidence: number;
   reason: string;
   evidencePages: string[];
+  pageRoles?: PageRoles;
+  sheetIndex?: SheetLabel[];
   finishes: ExtractedFinish[];
 };
 
@@ -152,6 +178,10 @@ HARD RULES — do not break these:
 - If there is NO usable flooring finish schedule/legend/spec, return status "not_found" and an EMPTY
   finishes array. An empty result is the CORRECT answer when none exists. Do not invent finishes from
   sections, assemblies, details, or general notes.
+- "sheet_index" is REQUIRED and is independent of finishes: it MUST contain one entry for EVERY page in
+  the PDF, in order, even when status is "not_found" or finishes is empty. It has nothing to do with
+  whether a finish schedule exists — it is just you reading each page's title block. Returning an empty
+  or partial sheet_index is a failure.
 
 STATUS field:
 - "found": a clear flooring finish schedule/legend/spec exists; you extracted from it.
@@ -161,8 +191,68 @@ STATUS field:
 
 ${FINISH_SCHEDULE_PROMPT}
 
+CATEGORY — pick the closest flooring category. If it's flooring-related but you can't tell which,
+use "unknown_flooring_related" and set inScope=false, needsReview=true (the estimator will decide):
+  resilient · rubber · lvt_lvp · vct · carpet · tile · turf · sheet_vinyl · epoxy ·
+  polished_concrete · sealed_concrete · wood · laminate · base · transition · stair · prep ·
+  moisture_mitigation · adhesive · accessory · unknown_flooring_related · other
+Capture manufacturer/product/color/size/thickness when the schedule prints them; "" if not.
+sourceText = the short line you read it from. needsReview=true for anything you're unsure belongs to
+flooring scope. If status is "not_found", finishes MUST be [] and reason must say what was missing.
+
+PAGE ROLES — while reading, also note which sheets serve as the drawing index/cover, the floor plans,
+and the specifications/details. List each role's sheet numbers (or "page N" if unnumbered) with a
+confidence (low|medium|high). Leave sheets empty + confidence "low" if you can't tell. These are
+observations to help the estimator navigate — do NOT guess, and they do not affect finish extraction.
+
+SHEET INDEX (REQUIRED — always fill this) — walk the PDF page by page and output one "sheet_index" entry
+for EVERY page, in page order, with the sheet number and sheet title read from that page's title block
+(e.g. {"page":3,"sheet":"A3.1","title":"INTERIOR DETAILS"}). The number of entries MUST equal the number
+of pages in the PDF. Use "" for sheet and/or title only when that page's title block has none visible —
+still emit the entry with its page number. This is just transcribing the title block, so it applies to
+every set regardless of finishes; do not skip it, do not leave it empty, and do not invent values.
+
 Return ONLY a JSON object (no prose, no markdown fences) shaped exactly:
-{"finish_schedule_status":"found|possible|not_found","confidence":0.0,"reason":"one sentence","evidence_pages":["A2.4"],"finishes":[{"code":"","type":"","description":"","unit":"SF|LF|EA|SY|other","category":"floor|base|transition|wall|other","includedInFlooringScope":true,"reason":"","confidence":0,"sourcePage":""}]}`;
+{"finish_schedule_status":"found|possible|not_found","confidence":0.0,"reason":"one sentence","evidence_pages":["A2.4"],"page_roles":{"drawingIndex":{"sheets":[],"confidence":"low"},"floorPlans":{"sheets":[],"confidence":"low"},"specs":{"sheets":[],"confidence":"low"}},"sheet_index":[{"page":1,"sheet":"","title":""}],"finishes":[{"code":"","type":"","description":"","manufacturer":"","product":"","color":"","size":"","thickness":"","unit":"SF|LF|EA|SY|other","category":"lvt_lvp","inScope":true,"needsReview":false,"reason":"","confidence":0,"sourcePage":"","sourceText":"","notes":""}]}`;
+
+// Normalize one model finish into ExtractedFinish: the model returns "inScope"; downstream uses
+// "includedInFlooringScope". Keep the richer optional fields when present. Never throw on a bad row.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeExtracted(f: any): ExtractedFinish {
+  const scope = typeof f?.inScope === "boolean" ? f.inScope : f?.includedInFlooringScope;
+  const opt = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+  return {
+    code: String(f?.code ?? ""),
+    type: String(f?.type ?? ""),
+    description: String(f?.description ?? ""),
+    unit: (["SF", "LF", "EA", "SY", "other"].includes(f?.unit) ? f.unit : "other") as ExtractedFinish["unit"],
+    category: (typeof f?.category === "string" && f.category ? f.category : "other") as FinishCategory,
+    includedInFlooringScope: typeof scope === "boolean" ? scope : true,
+    reason: String(f?.reason ?? ""),
+    confidence: typeof f?.confidence === "number" ? f.confidence : 0,
+    sourcePage: opt(f?.sourcePage),
+    manufacturer: opt(f?.manufacturer),
+    product: opt(f?.product),
+    color: opt(f?.color),
+    size: opt(f?.size),
+    thickness: opt(f?.thickness),
+    needsReview: typeof f?.needsReview === "boolean" ? f.needsReview : undefined,
+    sourceText: opt(f?.sourceText),
+    notes: opt(f?.notes),
+  };
+}
+
+// Parse the page_roles observations, tolerating a missing/partial object. Returns undefined when absent.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parsePageRoles(pr: any): PageRoles | undefined {
+  if (!pr || typeof pr !== "object") return undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const role = (r: any): PageRole => ({
+    sheets: Array.isArray(r?.sheets) ? r.sheets.map(String).filter(Boolean) : [],
+    confidence: ["low", "medium", "high"].includes(r?.confidence) ? r.confidence : "low",
+  });
+  return { drawingIndex: role(pr.drawingIndex), floorPlans: role(pr.floorPlans), specs: role(pr.specs) };
+}
 
 function stripToJson(raw: string): string {
   let body = raw.trim();
@@ -207,7 +297,14 @@ export async function readFinishesGuarded(pdfUrl: string, model = "claude-sonnet
     confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0,
     reason: typeof parsed.reason === "string" ? parsed.reason : "",
     evidencePages: Array.isArray(parsed.evidence_pages) ? parsed.evidence_pages.map(String) : [],
-    finishes: Array.isArray(parsed.finishes) ? (parsed.finishes as ExtractedFinish[]) : [],
+    pageRoles: parsePageRoles(parsed.page_roles),
+    sheetIndex: Array.isArray(parsed.sheet_index)
+      ? parsed.sheet_index
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((s: any) => ({ page: Number(s?.page) || 0, sheet: String(s?.sheet ?? ""), title: String(s?.title ?? "") }))
+          .filter((s: SheetLabel) => s.page > 0)
+      : undefined,
+    finishes: Array.isArray(parsed.finishes) ? parsed.finishes.map(normalizeExtracted) : [],
   };
   return { result, model: res.model, usage: res.usage };
 }
@@ -223,18 +320,16 @@ export type ProjectInfo = {
   squareFeet: string;
   projectNumber: string;
   issueDate: string;
-  finishSheets: string[]; // drawing-index sheet numbers likely holding finishes (hint, verify later)
 };
 
-const PROJECT_INFO_PROMPT = `This is the title / cover sheet of a commercial construction plan set. From its
-title block and drawing-list index, extract the project metadata. Use "" (or [] ) for anything not shown —
-NEVER invent. Return ONLY a JSON object, no prose, no markdown fences, shaped exactly:
-{"name":"","address":"","owner":"","architect":"","contractor":"","scope":"","useType":"","squareFeet":"","projectNumber":"","issueDate":"","finishSheets":[]}
-- name: the project name. address: full street address. owner/architect/contractor: firm or person.
-- scope: one-line description of the work. useType: occupancy/use group. squareFeet: GSF if printed.
-- projectNumber + issueDate: from the title block.
-- finishSheets: sheet numbers in the drawing index whose titles mention FINISH / FINISH SCHEDULE /
-  FINISH PLAN (e.g. ["A2.4"]). [] if none are listed.`;
+const PROJECT_INFO_PROMPT = `This is the title / cover sheet of a commercial construction plan set. Using ONLY
+what is visible on this one page (the title block), extract the project metadata. Use "" for anything
+not shown — NEVER invent. Do NOT extract finishes and do NOT classify pages.
+
+Return ONLY a JSON object, no prose, no markdown fences, shaped exactly:
+{"name":"","address":"","owner":"","architect":"","contractor":"","scope":"","useType":"","squareFeet":"","projectNumber":"","issueDate":""}
+- name/address/owner/architect/contractor: from the title block. scope: one-line work description.
+- useType: occupancy/use group. squareFeet: GSF if printed. projectNumber + issueDate: from the title block.`;
 
 /** Read just the cover/title sheet → structured project metadata (for the upload→confirm flow). */
 export async function extractProjectInfo(coverImageB64: string) {

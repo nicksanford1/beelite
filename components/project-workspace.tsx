@@ -16,7 +16,7 @@ export async function ProjectWorkspace({
   children,
 }: {
   projectId: string;
-  active: StageKey;
+  active?: StageKey; // omitted on the Overview (it isn't a pipeline stage)
   children: React.ReactNode;
 }) {
   const project = await db.project.findUnique({
@@ -36,14 +36,26 @@ export async function ProjectWorkspace({
   const rail = (
     <>
       <Link href="/" className="ws-back">← All bids</Link>
-      <div>
+      <Link href={`/projects/${projectId}`} className="ws-proj">
         <div className="ws-proj-name">{project.name}</div>
         <div className="ws-proj-meta">
           {project.gc ?? "No GC"} · {project.location ?? "No location"}
         </div>
-      </div>
+      </Link>
 
       <nav className="rule" aria-label="Bid pipeline">
+        <Link
+          href={`/projects/${projectId}`}
+          className="rule-step rule-overview"
+          data-state={active === undefined ? "active" : "todo"}
+          aria-current={active === undefined ? "page" : undefined}
+        >
+          <span className="rule-tick">◆</span>
+          <span>
+            <span className="rule-label">Overview</span>
+            <span className="rule-note">Status &amp; summary</span>
+          </span>
+        </Link>
         {stages.map((s) => (
           <Link
             key={s.key}

@@ -5,7 +5,14 @@ import { confirmFinishes } from "@/app/actions";
 import type { ExtractedFinish } from "@/lib/anthropic";
 
 const UNITS = ["SF", "LF", "EA", "SY", "other"];
-const CATEGORIES = ["floor", "base", "transition", "wall", "other"];
+// Material vocabulary — must mirror FinishCategory in lib/anthropic.ts so the AI's value
+// (e.g. "lvt_lvp", "tile") matches an option instead of silently falling back to the first.
+const CATEGORIES = [
+  "resilient", "rubber", "lvt_lvp", "vct", "carpet", "tile", "turf", "sheet_vinyl",
+  "epoxy", "polished_concrete", "sealed_concrete", "wood", "laminate",
+  "base", "transition", "stair", "prep", "moisture_mitigation", "adhesive", "accessory",
+  "unknown_flooring_related", "other",
+];
 
 const cell: React.CSSProperties = { padding: "8px 10px", borderBottom: "1px solid var(--border)", verticalAlign: "middle" };
 const input: React.CSSProperties = { font: "inherit", fontSize: 14, padding: "6px 8px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)", width: "100%" };
@@ -67,7 +74,17 @@ export function FinishReview({ projectId, planSheetId, initial }: { projectId: s
                   {f.confidence.toFixed(2)}
                 </td>
                 <td style={{ ...cell, color: "var(--muted)", fontFamily: "var(--font-mono)", fontSize: 12, whiteSpace: "nowrap" }}>
-                  {f.sourcePage || "—"}
+                  {f.sourcePage ? (
+                    <a
+                      href={`/projects/${projectId}/plans?sheet=${encodeURIComponent(f.sourcePage)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={`Open sheet ${f.sourcePage} in the plans viewer${f.sourceText ? ` — "${f.sourceText}"` : ""}`}
+                      style={{ color: "var(--gold, #e0b341)", textDecoration: "none", fontWeight: 600 }}
+                    >
+                      {f.sourcePage} ↗
+                    </a>
+                  ) : "—"}
                 </td>
                 <td style={cell}>
                   <button type="button" onClick={() => remove(i)} aria-label="Remove" style={{ ...input, width: "auto", cursor: "pointer", color: "var(--muted)" }}>✕</button>
