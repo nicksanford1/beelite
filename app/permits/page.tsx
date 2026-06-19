@@ -5,6 +5,7 @@ import { SiteHeader } from "@/components/site-header";
 import { PermitSelectAll } from "@/components/permit-select-all";
 import { CopyLeadsForClaude } from "@/components/permit-copy-for-claude";
 import { setLeadStatus, setLeadStatusBulk } from "./actions";
+import { unstable_cache } from "next/cache";
 
 // Browse + triage the ingested City of New Orleans permits (NolaPermit). Filters drive a GET form so
 // the table is shareable/bookmarkable; the per-row Save/Hide buttons are server-action forms that
@@ -13,6 +14,22 @@ import { setLeadStatus, setLeadStatusBulk } from "./actions";
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 50;
+
+// The building-class dropdown options come from a groupBy that scans the whole 456k-row table — the
+// heaviest of this page's concurrent queries (it triggered the connection-pool timeout). The set of
+// classes changes rarely, so cache it for 10 min instead of re-scanning on every load.
+const getPermitClasses = unstable_cache(
+  async () => {
+    const groups = await db.nolaPermit.groupBy({
+      by: ["permitClassMapped"],
+      _count: true,
+      orderBy: { permitClassMapped: "asc" },
+    });
+    return groups.map((g) => g.permitClassMapped).filter((c): c is string => !!c);
+  },
+  ["permit-class-options"],
+  { revalidate: 600 },
+);
 
 // The permit codes that carry flooring scope (any project that builds/renovates interior space).
 // Shown as the curated checkbox set + the one-click preset. See the code catalog in chat history.
@@ -92,7 +109,7 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
   if (view === "active") where.leadStatus = { not: "dismissed" };
   else if (view !== "all") where.leadStatus = view; // new | saved | downloaded | dismissed
 
-  const [rows, total, savedTotal, downloadedTotal, classGroups] = await Promise.all([
+  const [rows, total, savedTotal, downloadedTotal, classes] = await Promise.all([
     db.nolaPermit.findMany({
       where,
       orderBy: { issueDate: { sort: "desc", nulls: "last" } },
@@ -102,10 +119,8 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
     db.nolaPermit.count({ where }),
     db.nolaPermit.count({ where: { leadStatus: "saved" } }),
     db.nolaPermit.count({ where: { leadStatus: "downloaded" } }),
-    db.nolaPermit.groupBy({ by: ["permitClassMapped"], _count: true, orderBy: { permitClassMapped: "asc" } }),
+    getPermitClasses(),
   ]);
-
-  const classes = classGroups.map((g) => g.permitClassMapped).filter((c): c is string => !!c);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   // Build query strings preserving the active filters (codes is multi-valued).
@@ -162,15 +177,19 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
         </span>
       </div>
 
-      {/* Quick presets */}
+      {/* Quick presets — first one is "home"; the current view is highlighted so you always know
+          where you are and how to get back. */}
       <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+        <Link className={`btn${view === "active" && !codes.length && !work ? " btn-primary" : ""}`} href="/permits">
+          🏠 All active leads
+        </Link>
         <Link className="btn" href={buildHref({ code: PRESET_CODES, view: "", page: "" })}>
           ⚑ Flooring-relevant codes
         </Link>
         <Link className="btn" href={buildHref({ code: PRESET_CODES, work: "New", view: "", page: "" })}>
           🏗 New construction only
         </Link>
-        <Link className="btn" href={buildHref({ view: "saved", code: [], page: "" })}>
+        <Link className={`btn${view === "saved" ? " btn-primary" : ""}`} href={buildHref({ view: "saved", code: [], page: "" })}>
           ⭐ My saved leads
         </Link>
       </div>

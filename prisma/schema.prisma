@@ -252,4 +252,8 @@ model NolaPermit {
   @@index([permitTypeMapped])
   @@index([issueDate])
   @@index([leadStatus])
+  // The /permits default view filters permitType (flooring codes) and sorts by issueDate desc.
+  // Composite index so that filter + sort + count don't scan the whole 456k-row table.
+  @@index([permitType, issueDate])
+  @@index([estProjectCost])
 }
