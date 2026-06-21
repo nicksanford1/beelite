@@ -910,7 +910,7 @@ ul {
 .opt-parallax__row {
   position: relative;
   overflow: hidden;
-  min-height: clamp(460px, 72vh, 680px);
+  min-height: clamp(480px, 82vh, 780px);
   display: flex;
   align-items: center;
 }
@@ -940,7 +940,7 @@ ul {
 
 /* --- Scroll effect B: strong parallax glide behind the text --- */
 .opt-parallax__row--fxb .opt-parallax__layer {
-  transform: translateY(calc((var(--p) - 0.5) * 44%)) scale(1.6);
+  transform: translateY(calc((var(--p) - 0.5) * 34%)) scale(1.4);
   filter: brightness(0.74) contrast(1.03);
 }
 .opt-parallax__row--fxb .opt-parallax__content {
@@ -997,8 +997,8 @@ ul {
   z-index: -1;
   background: radial-gradient(
     62% 70% at 50% 50%,
-    rgba(0, 0, 0, 0.58) 0%,
-    rgba(0, 0, 0, 0.3) 55%,
+    rgba(0, 0, 0, 0.66) 0%,
+    rgba(0, 0, 0, 0.36) 55%,
     rgba(0, 0, 0, 0) 80%
   );
   filter: blur(8px);
@@ -1033,11 +1033,12 @@ ul {
 
 .opt-parallax__sub {
   font-size: clamp(1.05rem, 1.7vw, 1.35rem);
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.4;
-  color: var(--red);
+  /* Brighter brand red so it pops over the photo, with a crisp dark edge. */
+  color: #ff2a33;
   margin-bottom: 20px;
-  text-shadow: 0 1px 14px rgba(0, 0, 0, 0.85);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 16px rgba(0, 0, 0, 0.6);
 }
 
 .opt-parallax .opt-body {
