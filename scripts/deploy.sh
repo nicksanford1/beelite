@@ -31,6 +31,10 @@ echo "▶ 1/4  Type-checking…"
 npm run typecheck
 
 echo "▶ 2/4  Building locally from a clean .next…"
+# A running `next dev` writes into .next and collides with the clean build.
+pkill -f "next dev" 2>/dev/null || true
+pkill -f "next-server" 2>/dev/null || true
+sleep 1
 rm -rf .next
 npm run build
 
