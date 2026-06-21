@@ -1,0 +1,175 @@
+/* Sandbox-only — /section-options. Four scroll-animation treatments for the
+   parallax services section. ScrollScene sets --p (0..1) as each scene moves
+   through the viewport; the effects below read it. Delete once a winner is
+   chosen. */
+
+.scenes__intro {
+  min-height: 70vh;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 120px var(--gutter) 60px;
+  background: var(--ink);
+}
+.scenes__kicker {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--red);
+  margin-bottom: 14px;
+}
+.scenes__h1 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  letter-spacing: -0.02em;
+  margin-bottom: 14px;
+}
+.scenes__note {
+  max-width: 52ch;
+  margin: 0 auto;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.scene {
+  position: relative;
+  min-height: 100vh;
+}
+
+.scene__stage {
+  --p: 0.5;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.scene__bg {
+  position: absolute;
+  inset: 0;
+  will-change: transform, filter;
+}
+
+.scene__scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 100% at 50% 50%, rgba(10, 11, 13, 0.7) 0%, rgba(10, 11, 13, 0.5) 100%),
+    linear-gradient(0deg, rgba(10, 11, 13, 0.55), rgba(10, 11, 13, 0) 45%);
+}
+
+.scene__content {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 var(--gutter);
+}
+
+.scene__tag {
+  position: absolute;
+  top: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 92vw;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  padding: 9px 16px;
+  font: 600 12px/1.3 var(--font-body);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.scene__title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(1.9rem, 4.2vw, 3.1rem);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  margin-bottom: 16px;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.6);
+}
+.scene__sub {
+  font-size: clamp(1.05rem, 1.7vw, 1.35rem);
+  font-weight: 700;
+  color: var(--red-coral);
+  margin-bottom: 18px;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
+}
+.scene__body {
+  max-width: 46ch;
+  font-size: 1.04rem;
+  font-weight: 500;
+  line-height: 1.65;
+  color: #eef1f4;
+  margin: 0 auto 26px;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.65);
+}
+
+/* ---- A: brighten on scroll-in + gentle text parallax ---- */
+.scene--A .scene__bg {
+  transform: scale(1.06);
+  filter: brightness(calc(0.4 + var(--p) * 0.75));
+}
+.scene--A .scene__content {
+  transform: translateY(calc((0.5 - var(--p)) * 70px));
+}
+
+/* ---- B: deep parallax photo behind steady text ---- */
+.scene--B .scene__bg {
+  transform: translateY(calc((var(--p) - 0.5) * 20vh)) scale(1.28);
+  filter: brightness(0.72);
+}
+.scene--B .scene__content {
+  transform: translateY(calc((0.5 - var(--p)) * -26px));
+}
+
+/* ---- C: elements converge into place (assembled by mid-scroll) ---- */
+.scene--C .scene__content {
+  --e: clamp(0, calc(var(--p) * 2), 1);
+}
+.scene--C .scene__title {
+  opacity: var(--e);
+  transform: translateX(calc((1 - var(--e)) * -90px));
+}
+.scene--C .scene__sub {
+  opacity: var(--e);
+  transform: translateX(calc((1 - var(--e)) * 90px));
+}
+.scene--C .scene__body {
+  opacity: var(--e);
+  transform: translateY(calc((1 - var(--e)) * 44px));
+}
+.scene--C .scene__btn {
+  opacity: var(--e);
+  transform: scale(calc(0.7 + var(--e) * 0.3));
+}
+
+/* ---- D: focus pull (blur+dark -> sharp+bright), text fades as you pass ---- */
+.scene--D .scene__bg {
+  transform: scale(1.08);
+  filter: brightness(calc(0.45 + var(--p) * 0.6)) blur(calc((1 - var(--p)) * 6px));
+}
+.scene--D .scene__content {
+  opacity: clamp(0, calc((1 - var(--p)) / 0.25), 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene__bg,
+  .scene__content,
+  .scene__title,
+  .scene__sub,
+  .scene__body,
+  .scene__btn {
+    transform: none !important;
+    filter: brightness(0.72) !important;
+    opacity: 1 !important;
+  }
+}

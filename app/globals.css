@@ -352,6 +352,17 @@ ul {
   filter: brightness(0.74) contrast(1.03);
 }
 
+/* Slow Ken Burns drift so the hero feels alive (disabled for reduced motion
+   via the global rule). Runs on the active slide and resets when it shows. */
+.hero__slide.is-active img {
+  animation: heroKenBurns 18s ease-in-out infinite alternate;
+}
+
+@keyframes heroKenBurns {
+  from { transform: scale(1.03) translate3d(0, 0, 0); }
+  to { transform: scale(1.11) translate3d(-1.6%, -1.2%, 0); }
+}
+
 /* Slide arrows */
 .hero__arrow {
   position: absolute;
@@ -952,6 +963,7 @@ ul {
   letter-spacing: -0.02em;
   color: var(--white);
   margin-bottom: 18px;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.6);
 }
 
 /* Short centered accent under the big heading — grows on reveal */
@@ -974,16 +986,19 @@ ul {
   font-size: clamp(1.05rem, 1.7vw, 1.35rem);
   font-weight: 700;
   line-height: 1.4;
-  color: var(--red);
+  color: var(--red-coral);
   margin-bottom: 20px;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
 }
 
 .opt-parallax .opt-body {
   font-size: 1.04rem;
   line-height: 1.65;
-  color: #d6d9de;
+  font-weight: 500;
+  color: #eef1f4;
   margin: 0 auto 26px;
   max-width: 46ch;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.65);
 }
 
 @media (max-width: 900px) {
