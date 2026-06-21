@@ -49,6 +49,11 @@ const FLOORING_CODE_VALUES = FLOORING_CODES.map((c) => c.code); // the curated s
 // catches electric / electrical / electrician. Add keywords here to hide more trades.
 const HIDE_DESCRIPTION_KEYWORDS = ["electric"];
 
+// Hard floor (no UI): only show sizable flooring jobs. Permits under this SF — and permits with no
+// SF on record — never appear in any view. Deliberate: we're curating the corpus down to quality
+// leads for the finish-read findings work. Bump or remove this constant to widen the view again.
+const MIN_SQFT = 15_000;
+
 // Default min est. cost — hide small jobs (< $100k) unless the estimator opts back in via `min=0`.
 const DEFAULT_MIN_COST = 100_000;
 const MIN_COST_OPTIONS: { value: number; label: string }[] = [
@@ -84,6 +89,9 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
   const page = Math.max(1, parseInt(one(sp.page) || "1", 10) || 1);
 
   const where: Prisma.NolaPermitWhereInput = {};
+  // Hard SF floor — always applied, no filter UI. Drops small jobs AND unknown-SF rows (gte excludes
+  // nulls). This is the corpus trim to "quality ones" we're working with.
+  where.totalSqFt = { gte: MIN_SQFT };
   // Always drop trade-only descriptions (electrical, etc.). Keep rows with no description — they
   // don't mention the keyword. AND-combines with the rest of the filters (incl. the search OR).
   where.AND = HIDE_DESCRIPTION_KEYWORDS.map((kw) => ({
@@ -282,6 +290,7 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
               <th className="addr">Address</th>
               <th className="desc">Description</th>
               <th>Building class</th>
+              <th style={{ textAlign: "right" }}>SF</th>
               <th style={{ textAlign: "right" }}>Est. cost</th>
               <th>Issued</th>
               <th>Plans</th>
@@ -290,7 +299,7 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={10} style={{ textAlign: "center", padding: "48px 16px", color: "var(--muted)" }}>
+                <td colSpan={11} style={{ textAlign: "center", padding: "48px 16px", color: "var(--muted)" }}>
                   No permits match these filters.
                 </td>
               </tr>
@@ -369,6 +378,7 @@ export default async function PermitsPage({ searchParams }: { searchParams: Prom
                     )}
                   </td>
                   <td>{r.permitClass ?? "—"}</td>
+                  <td className="num">{r.totalSqFt ? `${Math.round(r.totalSqFt).toLocaleString("en-US")}` : "—"}</td>
                   <td className="num">{fmtMoney(r.estProjectCost)}</td>
                   <td className="mono" style={{ color: "var(--muted)" }}>{fmtDate(r.issueDate)}</td>
                   <td>

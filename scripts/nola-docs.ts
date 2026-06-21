@@ -20,7 +20,7 @@
  * Idempotent: a permit whose folder already has manifest.json is skipped unless --force.
  */
 process.loadEnvFile(".env");
-import { mkdirSync, existsSync, writeFileSync } from "fs";
+import { mkdirSync, existsSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
 import { PrismaClient } from "@prisma/client";
 import {
@@ -55,13 +55,21 @@ async function main() {
   const listOnly = hasFlag("list"); // inventory the doc list only, download nothing (cheap / portal-gentle)
   const permitArg = arg("permit", "");
   const permitsArg = arg("permits", ""); // comma-separated PermitNums
+  const fromFile = arg("from", ""); // JSON file: array of PermitNums or {permitNum} objects (e.g. data/nola-candidates.json)
   const status = arg("status", "saved");
 
-  const permitList = permitsArg
-    ? permitsArg.split(",").map((s) => s.trim()).filter(Boolean)
-    : permitArg
-      ? [permitArg]
-      : [];
+  const fromList: string[] = fromFile
+    ? (JSON.parse(readFileSync(fromFile, "utf8")) as Array<string | { permitNum?: string }>)
+        .map((r) => (typeof r === "string" ? r : r.permitNum ?? ""))
+        .filter(Boolean)
+    : [];
+  const permitList = fromList.length
+    ? fromList
+    : permitsArg
+      ? permitsArg.split(",").map((s) => s.trim()).filter(Boolean)
+      : permitArg
+        ? [permitArg]
+        : [];
   const permits = permitList.length
     ? await db.nolaPermit.findMany({ where: { permitNum: { in: permitList } } })
     : await db.nolaPermit.findMany({
@@ -115,7 +123,11 @@ async function main() {
       ...d,
       kept: keepMode === "all" ? true : isPlan(d.name),
     }));
-    const toGet = listOnly ? [] : classified.filter((d) => d.kept); // list mode: inventory only
+    const kept = classified.filter((d) => d.kept);
+    const maxFiles = Number(arg("maxfiles", "0")) || Infinity; // per-permit cap so one lead can't eat disk/portal
+    const toGet = listOnly ? [] : kept.slice(0, maxFiles); // list mode: inventory only
+    if (!listOnly && kept.length > maxFiles)
+      console.log(`     · ${p.permitNum}: ${kept.length} plan docs → capping at ${maxFiles} (--maxfiles)`);
 
     mkdirSync(dir, { recursive: true });
     const used = new Set<string>();

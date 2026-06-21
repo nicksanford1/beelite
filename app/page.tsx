@@ -14,7 +14,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ q
   const { q } = await searchParams;
   const query = (q ?? "").trim().toLowerCase();
 
+  // Reference plan sets (status="corpus") are not bids — they live in the Plan library, not here.
   const projects = await db.project.findMany({
+    where: { status: { not: "corpus" } },
     orderBy: { createdAt: "desc" },
     include: {
       _count: { select: { documents: true, finishes: true } },
