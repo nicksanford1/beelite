@@ -33,6 +33,7 @@ These files define agent behavior; they are not product specifications or task-s
 | [runbooks/nola-portal.md](runbooks/nola-portal.md) | active | NOLA OneStop document retrieval procedure |
 | [evals/finish-read-notes.md](evals/finish-read-notes.md) | active | Dated finish-extraction observations and evaluation evidence |
 | [plans/active/takeoff-measurement.md](plans/active/takeoff-measurement.md) | proposal | Traceable plan-measurement design; not approved or implemented |
+| [plans/active/vector-first-measurement.md](plans/active/vector-first-measurement.md) | proposal | Experiment to determine whether vector PDF geometry should drive measurement |
 
 ## Archive
 

@@ -1,0 +1,48 @@
+I am designing an AI-assisted commercial flooring takeoff application, but I am still brainstorming. Start from a blank slate and do not assume that LoRA, a segmentation model, or any particular architecture is correct.
+
+Current product context:
+- A user uploads a construction-plan PDF.
+- The application can render individual pages and extract PDF text.
+- A vision-language model can help identify floor plans, finish schedules, legends, dimensions, and finish codes.
+- The main challenge is accurately estimating square footage from floor plans.
+- Every result should be inspectable and correctable by a flooring estimator.
+- Human corrections could eventually become training data.
+- The web application uses Next.js and TypeScript, but a separate Python/GPU service is acceptable.
+
+Teach me how a custom machine-learning system could connect to this application.
+
+Please explain:
+
+1. The difference between a vision-language model, LoRA, object detection, semantic segmentation, instance segmentation, and vector-PDF geometry extraction.
+2. Which parts of flooring takeoff each approach could solve.
+3. A complete training-time and production-inference architecture.
+4. How an uploaded PDF moves through page classification, scale detection, segmentation, polygon generation, finish assignment, human review, and final SF calculation.
+5. What should be deterministic code versus AI output.
+6. How a segmentation model would be exposed through an API and called by the Next.js application.
+7. Example API request and response schemas using polygons, masks, classes, and confidence.
+8. How pixel polygons are converted into real square footage after scale calibration.
+9. What training labels and annotation format I would need.
+10. How corrected user measurements could become new training examples safely.
+11. Whether LoRA would help with geometry, plan interpretation, finish assignment, or all three.
+12. Whether I should fine-tune one model or use separate models for page understanding, geometry, and finish assignment.
+13. How vector PDFs should be handled differently from scanned/raster plans.
+14. How to construct training, validation, and untouched test sets without data leakage.
+15. What metrics matter: scale error, polygon overlap, room-level area error, finish accuracy, human correction time, and project-level SF error.
+16. The cheapest experiment I could run before committing to custom model training.
+17. A phased research plan comparing:
+    - general multimodal API;
+    - vector parsing;
+    - off-the-shelf segmentation;
+    - fine-tuned segmentation;
+    - VLM LoRA;
+    - a hybrid system.
+18. Major failure modes, privacy/licensing issues, GPU requirements, serving costs, and maintenance risks.
+
+Use one realistic flooring-plan example throughout the explanation. Include ASCII architecture diagrams and concrete JSON examples. Explain technical terms in plain English, but do not oversimplify the engineering tradeoffs.
+
+Do not write full production code yet. End with:
+- your recommended first experiment;
+- the first dataset I should assemble;
+- the five decisions I need to make before implementation.
+
+When discussing current models or tools, use recent primary research papers and official documentation, provide links, and distinguish verified facts from recommendations.
