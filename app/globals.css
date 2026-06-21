@@ -445,8 +445,32 @@ ul {
   line-height: 1.04;
   letter-spacing: -0.02em;
   margin-bottom: clamp(18px, 2.2vw, 30px);
-  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.45);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
   animation: rise 1.3s var(--ease-smooth) 0.7s both;
+}
+
+/* Soft shade pool behind the hero copy so the text stays readable over the
+   lighter image, without darkening the rest of the photo. */
+.hero__copy {
+  position: relative;
+}
+
+.hero__copy::before {
+  content: "";
+  position: absolute;
+  top: -40px;
+  bottom: -36px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(760px, 96%);
+  z-index: -1;
+  background: radial-gradient(
+    62% 70% at 50% 50%,
+    rgba(0, 0, 0, 0.58) 0%,
+    rgba(0, 0, 0, 0.3) 55%,
+    rgba(0, 0, 0, 0) 80%
+  );
+  filter: blur(8px);
 }
 
 /* Two headline lines, each with its own animated rule underneath */
@@ -489,7 +513,7 @@ ul {
   margin: 0 auto clamp(18px, 2.2vw, 30px);
   font-size: clamp(1.1rem, 1.7vw, 1.45rem);
   line-height: 1.55;
-  font-weight: 400;
+  font-weight: 600;
   letter-spacing: 0.005em;
   color: #ffffff;
   text-shadow: 0 1px 12px rgba(0, 0, 0, 0.55);
