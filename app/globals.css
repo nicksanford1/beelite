@@ -941,24 +941,30 @@ ul {
 /* --- Scroll effect B: strong parallax glide behind the text --- */
 .opt-parallax__row--fxb .opt-parallax__layer {
   transform: translateY(calc((var(--p) - 0.5) * 44%)) scale(1.6);
-  filter: brightness(0.72);
+  filter: brightness(0.74) contrast(1.03);
 }
 .opt-parallax__row--fxb .opt-parallax__content {
   transform: translateY(calc((0.5 - var(--p)) * -64px));
 }
 
-/* Symmetric scrim so centered text reads while the photo shows through */
+/* Lighter scrim that matches the hero — photo stays bright, with a pooled
+   shade behind the copy (below) carrying the text legibility. */
 .opt-parallax__scrim {
   position: absolute;
   inset: 0;
   background:
     radial-gradient(
-      120% 100% at 50% 50%,
-      rgba(10, 11, 13, 0.78) 0%,
-      rgba(10, 11, 13, 0.6) 60%,
-      rgba(10, 11, 13, 0.48) 100%
+      120% 85% at 50% 52%,
+      rgba(6, 7, 9, 0.3) 0%,
+      rgba(6, 7, 9, 0.1) 55%,
+      rgba(6, 7, 9, 0) 82%
     ),
-    linear-gradient(0deg, rgba(10, 11, 13, 0.5), rgba(10, 11, 13, 0) 40%);
+    linear-gradient(
+      180deg,
+      rgba(6, 7, 9, 0.08) 0%,
+      rgba(6, 7, 9, 0) 36%,
+      rgba(6, 7, 9, 0.38) 100%
+    );
 }
 
 .opt-parallax__content {
@@ -973,8 +979,29 @@ ul {
 }
 
 .opt-parallax__panel {
+  position: relative;
   max-width: 40rem;
   text-align: center;
+}
+
+/* Shade pool behind the copy, same as the hero, for legibility over the
+   lighter photo. */
+.opt-parallax__panel::before {
+  content: "";
+  position: absolute;
+  top: -40px;
+  bottom: -36px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(760px, 116%);
+  z-index: -1;
+  background: radial-gradient(
+    62% 70% at 50% 50%,
+    rgba(0, 0, 0, 0.58) 0%,
+    rgba(0, 0, 0, 0.3) 55%,
+    rgba(0, 0, 0, 0) 80%
+  );
+  filter: blur(8px);
 }
 
 .opt-parallax__title {
@@ -1016,11 +1043,11 @@ ul {
 .opt-parallax .opt-body {
   font-size: 1.04rem;
   line-height: 1.65;
-  font-weight: 500;
-  color: #eef1f4;
+  font-weight: 600;
+  color: #ffffff;
   margin: 0 auto 26px;
   max-width: 46ch;
-  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.65);
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.55);
 }
 
 @media (max-width: 900px) {

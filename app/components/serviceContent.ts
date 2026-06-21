@@ -21,7 +21,7 @@ export const CONTENT_A: ServiceItem[] = [
     sub: "Precision Flooring. Reliable Results.",
     body: "Whether it's a fitness center, retail space, healthcare facility, or commercial property, our team installs flooring systems built to perform and made to last.",
     btn: "View Flooring Services",
-    img: "/site/service-flooring.jpg",
+    img: "/hero/hero-1.jpg",
     alt: ALT.flooring,
   },
   {
@@ -43,7 +43,7 @@ export const CONTENT_B: ServiceItem[] = [
     sub: "Built for Fitness, Retail, Healthcare & Commercial Spaces",
     body: "From preparation through installation, our team delivers high-performance flooring systems with the quality, consistency, and responsiveness your project requires.",
     btn: "View Flooring Services",
-    img: "/site/service-flooring.jpg",
+    img: "/hero/hero-1.jpg",
     alt: ALT.flooring,
   },
   {
