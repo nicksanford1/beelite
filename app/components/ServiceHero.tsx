@@ -2,15 +2,13 @@ import Image from "next/image";
 import Reveal from "./Reveal";
 
 export default function ServiceHero({
-  crumb,
   eyebrow,
   titleLines,
   lede,
   attrs,
   img,
 }: {
-  crumb: string;
-  eyebrow: string;
+  eyebrow?: string;
   titleLines: string[];
   lede: string;
   attrs: string[];
@@ -24,14 +22,8 @@ export default function ServiceHero({
       </div>
 
       <div className="shero__inner">
-        <nav className="shero__crumb" aria-label="Breadcrumb">
-          <a href="/">Home</a>
-          <span aria-hidden="true">/</span>
-          <span>{crumb}</span>
-        </nav>
-
         <Reveal className="shero__copy reveal">
-          <p className="shero__eyebrow reveal-item">{eyebrow}</p>
+          {eyebrow && <p className="shero__eyebrow reveal-item">{eyebrow}</p>}
           <h1 id="shero-title" className="shero__title">
             {titleLines.map((l) => (
               <span className="mask-line" key={l}>

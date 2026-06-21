@@ -57,6 +57,7 @@ export default function ProcessFlow({
       {steps.map((s, i) => (
         <div className={`pstep${i < shown ? " is-shown" : ""}`} key={s.title}>
           <span className="pstep__icon">{s.icon}</span>
+          {/* Connector flows into the next step as it reveals */}
           {i < steps.length - 1 && <span className="pstep__link" aria-hidden="true" />}
           <h3 className="pstep__title">{s.title}</h3>
           <p className="pstep__body">{s.body}</p>

@@ -33,33 +33,10 @@ export const metadata = {
   alternates: { canonical: "/flooring-installation" },
 };
 
-const FEATURES = [
-  {
-    title: "Eliminate Travel Costs",
-    body: "Our nationwide network deploys locally or regionally — cutting flights, rental cars, hotels, and per diem off your invoice.",
-    img: "/site/service-flooring.jpg",
-  },
-  {
-    title: "Expand Your Team",
-    body: "Boost capacity without the overhead. Tap a trained crew instantly and skip recruiting, training, and payroll.",
-    img: "/hero/hero-1.jpg",
-  },
-  {
-    title: "Reliable, High-Quality Installs",
-    body: "Skilled technicians backed by rigorous training deliver dependable, high-quality work that protects your reputation.",
-    img: "/site/hero-3.jpg",
-  },
-  {
-    title: "Meet Tight Deadlines",
-    body: "A flexible nationwide team adapts fast to changing schedules and keeps tight project timelines on track.",
-    img: "/site/service-fitness.jpg",
-  },
-];
-
 const PROCESS = [
   {
-    title: "Set requirements & schedule",
-    body: "Define project needs and timing for a tailored, seamless plan.",
+    title: "Set Requirements & Schedule Installation",
+    body: "Define project needs and schedule, ensuring a tailored plan for a seamless flooring installation experience.",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.6" />
@@ -68,8 +45,8 @@ const PROCESS = [
     ),
   },
   {
-    title: "Truck materials to site",
-    body: "Move product from your warehouse — or ours — securely, with no delays.",
+    title: "Truck Materials from Your Warehouse (or Ours!) to Project Site",
+    body: "Efficiently transport materials, minimizing delays and ensuring all components arrive securely at the project site.",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M3 6h11v9H3z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
@@ -80,8 +57,8 @@ const PROCESS = [
     ),
   },
   {
-    title: "Confirm details",
-    body: "Verify everything with the customer for clear, aligned communication.",
+    title: "Confirm Installation Details with Customer",
+    body: "Verify details with the customer to guarantee alignment, fostering clear communication for a successful installation process.",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M4 5h16v11H9l-4 3v-3H4z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
@@ -90,8 +67,8 @@ const PROCESS = [
     ),
   },
   {
-    title: "Stage materials",
-    body: "Organize and prep the project space so the install runs efficiently.",
+    title: "Stage Materials in Assigned Project Space",
+    body: "Organize and prepare project space, optimizing efficiency for a smooth installation process.",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <rect x="3" y="13" width="8" height="8" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
@@ -101,8 +78,8 @@ const PROCESS = [
     ),
   },
   {
-    title: "Install the flooring",
-    body: "Install with craftsmanship and stability built to last.",
+    title: "Install Flooring",
+    body: "Install flooring in designated spaces, prioritizing craftsmanship and stability for lasting performance.",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M14.7 6.3a3.5 3.5 0 0 0-4.6 4.2l-6 6 2.1 2.1 6-6a3.5 3.5 0 0 0 4.2-4.6l-2.1 2.1-1.6-1.6 2-2.2z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
@@ -110,8 +87,8 @@ const PROCESS = [
     ),
   },
   {
-    title: "Final check of work",
-    body: "A thorough check that every requirement and standard is met.",
+    title: "Final Check of Work & Requirements",
+    body: "Conduct a thorough check, ensuring all work meets requirements and standards before finalizing the installation.",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <rect x="6" y="4" width="12" height="17" rx="2" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
@@ -121,8 +98,8 @@ const PROCESS = [
     ),
   },
   {
-    title: "Report back",
-    body: "Prompt completion details — transparency and assurance, job done.",
+    title: "Report Back to Customer Upon Completion",
+    body: "Communicate completion details promptly, providing transparency and customer assurance for a successful flooring installation project.",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M21 3L3 11l7 2.8L13 21l8-18z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
@@ -139,50 +116,27 @@ export default function FlooringPage() {
 
       <main>
         <ServiceHero
-          crumb="Flooring Installation"
-          eyebrow="Nationwide · Commercial Flooring Installers"
-          titleLines={["Flooring", "Installation"]}
+          titleLines={["Nationwide, Commercial", "Flooring Installers"]}
           lede="We install commercial, fitness, and retail flooring with precision — built for durability and safety, and finished on schedule so your space is ready for business."
           attrs={["Skilled technicians", "Logistics support", "Thorough communication", "Experience & commitment"]}
-          img="/site/service-flooring.jpg"
+          img="/scraped-images/Flooring-Installation-for-Fitness-Centers-2.jpg"
         />
 
-        {/* Section 2 — why partner with Elite */}
-        <section className="adv adv--black adv--haccent" aria-label="Why partner with Elite">
-          <Reveal className="adv__head reveal">
-            <p className="section-eyebrow reveal-item">Why partner with Elite</p>
-            <h2 className="adv__title reveal-item">Stay focused on selling. We handle the logistics.</h2>
-          </Reveal>
-          <Reveal className="adv__grid adv__grid--4 reveal">
-            {FEATURES.map((f) => (
-              <article className="advcard reveal-item" key={f.title}>
-                <div className="advcard__media">
-                  <Image src={f.img} alt="" fill sizes="(max-width: 1100px) 50vw, 25vw" quality={85} />
-                </div>
-                <div className="advcard__body">
-                  <h3 className="advcard__title">{f.title}</h3>
-                  <p className="advcard__text">{f.body}</p>
-                </div>
-              </article>
-            ))}
-          </Reveal>
-        </section>
-
-        {/* Section 3 — final-mile process */}
+        {/* Final Mile Services — spec-board process */}
         <section className="procsec" aria-label="Our process">
           <Reveal className="procsec__head reveal">
-            <p className="section-eyebrow reveal-item">Final-mile services</p>
-            <h2 className="procsec__title reveal-item">Precision from the first plan to the final check</h2>
+            <h2 className="procsec__title reveal-item">Final Mile Services</h2>
             <p className="procsec__intro reveal-item">
-              A meticulous process from initial planning to finishing touches — a flawless,
-              reliable flooring installation, every time.
+              Our meticulous process delivers elite precision from the initial planning stages
+              to the finishing touches — a flawless, reliable flooring installation experience
+              for every client.
             </p>
           </Reveal>
 
-          <ProcessFlow steps={PROCESS} />
+          <ProcessFlow steps={PROCESS} interval={880} />
         </section>
 
-        {/* Section 4 — proudly serving */}
+        {/* Proudly serving */}
         <section className="serve" aria-label="Proudly serving">
           <Reveal className="serve__head reveal">
             <p className="section-eyebrow reveal-item">Proudly serving</p>
@@ -199,7 +153,7 @@ export default function FlooringPage() {
           </Reveal>
         </section>
 
-        {/* Section 5 — the Elite difference */}
+        {/* The Elite difference */}
         <section className="diff" aria-label="The Elite difference">
           <div className="diff__grid">
             <Reveal className="diff__text reveal">
@@ -225,7 +179,7 @@ export default function FlooringPage() {
           </div>
         </section>
 
-        {/* Section 6 — request a quote */}
+        {/* Request a quote */}
         <QuoteCentered decor="blueprint" theme="lightcard" kicker="for Flooring Installation Services" />
       </main>
 
