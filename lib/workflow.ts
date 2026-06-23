@@ -37,7 +37,6 @@ export function deriveWorkflow(project: WorkflowProject): { stages: Stage[]; bid
     (f) => (f.materialSource !== "owner_furnishes" && f.materialUnitCost <= 0) || f.installRate <= 0
   ).length;
   const approved = project.takeoff.filter((t) => t.status === "approved").length;
-  const scopeCount = project.scopeItems.length;
   const bid = computeBid(finishes as never, project.takeoff as never, project.settings);
 
   const defs = [
@@ -60,11 +59,6 @@ export function deriveWorkflow(project: WorkflowProject): { stages: Stage[]; bid
       key: "takeoff" as const, label: "Takeoff", path: "/takeoff",
       complete: approved > 0, blocked: false,
       note: approved ? `${plural(approved, "approved line")}` : "Enter quantities",
-    },
-    {
-      key: "scope" as const, label: "Scope", path: "/scope",
-      complete: scopeCount > 0, blocked: false,
-      note: scopeCount ? plural(scopeCount, "item") : "Inclusions / exclusions",
     },
     {
       key: "bid" as const, label: "Bid", path: "/estimate",

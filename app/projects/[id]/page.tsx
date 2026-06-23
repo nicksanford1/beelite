@@ -3,231 +3,280 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { signedUrl } from "@/lib/storage";
 import { readPageArtifact } from "@/lib/ingest";
-import { getProjectOverview, type FinishReadStatus } from "@/lib/overview";
+import { deriveWorkflow } from "@/lib/workflow";
+import { usd } from "@/lib/estimate";
 import { readWholeDoc, passProject } from "@/app/actions";
-import { ProjectWorkspace } from "@/components/project-workspace";
+import { WorkspaceFrame } from "@/components/workspace-frame";
+import { WorkspaceRail, type RailSection } from "@/components/workspace-rail";
+import { FinishReview } from "@/components/finish-review";
+import { PricingEditor } from "@/components/pricing-editor";
+import { FinishReadRunner } from "@/components/finish-read-runner";
+import { SheetSyncRunner } from "@/components/sheet-sync-runner";
+import type { ExtractedFinish, FinishAssignment } from "@/lib/anthropic";
 
 export const dynamic = "force-dynamic";
 
-const STATUS_LABEL: Record<string, string> = {
-  no_plans: "No plans",
-  plans_uploaded: "Plans uploaded",
-  finish_read_processing: "Reading finishes…",
-  finish_read_error: "Read failed",
-  finishes_found: "Finishes found",
-  ambiguous_finish_info: "Possible finishes",
-  no_finish_schedule_found: "No finish schedule",
-  finishes_confirmed: "Finishes confirmed",
-  rates_needed: "Rates needed",
-  ready_to_sync: "Ready to sync",
-  synced: "Synced",
-  passed: "Passed",
-};
-
-const READ_LABEL: Record<FinishReadStatus, { text: string; tone: string }> = {
-  not_started: { text: "Not started", tone: "muted" },
-  processing: { text: "Reading…", tone: "warn" },
-  found: { text: "Found", tone: "good" },
-  possible: { text: "Possible", tone: "warn" },
-  not_found: { text: "No finish schedule", tone: "off" },
-  error: { text: "Read failed", tone: "off" },
-};
-
-// The pipeline as a horizontal status strip (no "Sheet Sync" step — sync lives inside Bid).
-const STEPS: Array<{ key: keyof ReturnType<typeof stepKeys>; label: string }> = [
-  { key: "plans", label: "Plans" },
-  { key: "finishes", label: "Finishes" },
-  { key: "rates", label: "Rates" },
-  { key: "takeoff", label: "Takeoff" },
-  { key: "scope", label: "Scope" },
-  { key: "bid", label: "Bid" },
-];
-function stepKeys() {
-  return { plans: "", finishes: "", rates: "", takeoff: "", scope: "", bid: "" };
-}
-
-const fmtDate = (d: Date | null | undefined) =>
-  d ? new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : null;
-
-export default async function OverviewPage({ params }: { params: Promise<{ id: string }> }) {
+// The whole bid as ONE scrolling column — Plans → Finishes → Pricing → Bid. The left rail is a
+// measuring rule that tracks where you are and pins the live bid; no tab-hopping. After creating a
+// project the page lands on Finishes (?focus=finishes), which is the first thing to confirm.
+export default async function WorkspacePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ focus?: string }>;
+}) {
   const { id } = await params;
-  const ov = await getProjectOverview(id);
-  if (!ov) notFound();
+  const { focus } = await searchParams;
 
-  const { project: p, document: docMeta, aiFindings: ai, workflow: wf } = ov;
-  const read = READ_LABEL[ai.finishReadStatus];
-  const roles = ai.pageRoles;
-
-  // PDF url + page-1 thumbnail (for "Open PDF" + the small preview), fetched here (no AI).
-  // First-uploaded doc = the primary file (its page 1 is the cover, its PDF is the "Open PDF" target).
-  // A plan set split across files to fit the 50MB cap still opens from / reads the primary.
-  const doc = await db.document.findFirst({
-    where: { projectId: id },
-    orderBy: { createdAt: "asc" },
-    include: { pages: { orderBy: { pageNumber: "asc" }, take: 1 } },
-  });
-  const pdfUrl = doc ? await signedUrl(doc.fileUrl).catch(() => null) : null;
-  const thumbPath = doc?.pages[0] ? readPageArtifact(doc.pages[0].scanSignals)?.imagePath : null;
-  const thumbUrl = thumbPath ? await signedUrl(thumbPath, 3600).catch(() => null) : null;
-
-  const details: Array<[string, string | null]> = [
-    ["GC / Customer", p.gc],
-    ["Location", p.location],
-    ["Project type", p.projectType],
-    ["Architect", p.architect],
-    ["Owner", p.owner],
-    ["Square footage", p.squareFeet],
-    ["Project #", p.projectNumber],
-    ["Issue date", p.issueDate],
-    ["Estimator", p.estimator],
-    ["Bid due", fmtDate(p.bidDate)],
-  ];
-
-  // Findings — honest rows only. Page roles appear only after the read actually ran.
-  type Finding = { label: string; value: string; tone: string; conf?: string };
-  const roleRow = (label: string, r: { sheets: string[]; confidence: string } | undefined): Finding => ({
-    label,
-    value: r && r.sheets.length ? r.sheets.join(", ") : "Not identified",
-    tone: r && r.sheets.length ? "good" : "muted",
-    conf: r && r.sheets.length ? r.confidence : undefined,
-  });
-  const findings: Finding[] = [
-    {
-      label: "Project details",
-      value: ai.projectDetailsStatus === "found" ? "Found" : ai.projectDetailsStatus === "partial" ? "Partial" : "Missing",
-      tone: ai.projectDetailsStatus === "found" ? "good" : ai.projectDetailsStatus === "partial" ? "warn" : "muted",
+  const project = await db.project.findUnique({
+    where: { id },
+    include: {
+      documents: { orderBy: { createdAt: "asc" }, include: { pages: true } },
+      finishes: { orderBy: { code: "asc" } },
+      takeoff: true,
+      scopeItems: true,
+      settings: true,
     },
-    { label: "Plan file", value: docMeta ? `${docMeta.pageCount} page${docMeta.pageCount === 1 ? "" : "s"}` : "None", tone: docMeta ? "good" : "muted" },
-    { label: "Finish read", value: read.text, tone: read.tone },
-  ];
-  if (roles) {
-    findings.push(roleRow("Drawing index", roles.drawingIndex));
-    findings.push(roleRow("Floor plans", roles.floorPlans));
-    findings.push(roleRow("Specifications", roles.specs));
+  });
+  if (!project) notFound();
+
+  const { bid } = deriveWorkflow(project);
+
+  // Plans: primary doc → PDF link + page-1 thumbnail. A split set still opens from the primary file.
+  const doc = project.documents[0];
+  const totalPages = project.documents.reduce((n, d) => n + d.pages.length, 0);
+  const pdfUrl = doc ? await signedUrl(doc.fileUrl).catch(() => null) : null;
+  const thumbPath = doc?.pages.find((p) => p.pageNumber === 1)?.scanSignals
+    ? readPageArtifact(doc.pages.find((p) => p.pageNumber === 1)!.scanSignals)?.imagePath
+    : null;
+  const thumbUrl = thumbPath ? await signedUrl(thumbPath, 3600).catch(() => null) : null;
+  const hasSheet = !!project.sheetId;
+
+  // Finishes: the saved finish-read for the schedule page (same source the old Finishes tab read).
+  const sheet = await db.planSheet.findFirst({
+    where: { document: { projectId: id }, extraction: { isNot: null } },
+    orderBy: { pageNumber: "asc" },
+    include: { extraction: true },
+  });
+  const ext = sheet?.extraction;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const corrected = ext?.corrected as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = (ext?.rawOutput ?? {}) as any;
+  const finishes: ExtractedFinish[] = corrected?.finishes ?? raw?.finishes ?? [];
+  const assignments: FinishAssignment[] = corrected?.assignments ?? raw?.assignments ?? [];
+  const readStatus: string = raw.status ?? (finishes.length ? "found" : ext ? "not_found" : "");
+  const reason: string = raw.reason ?? "";
+  const confirmed = !!corrected;
+
+  // Pricing: one row per in-scope finish, with its single total quantity rolled up from takeoff.
+  const inScope = project.finishes.filter((f) => f.inScope);
+  const qtyByCode = new Map<string, number>();
+  for (const t of project.takeoff) {
+    if (t.status === "approved") qtyByCode.set(t.finishCode, (qtyByCode.get(t.finishCode) ?? 0) + t.qty);
   }
+  const pricingRows = inScope.map((f) => ({
+    id: f.id,
+    code: f.code,
+    type: f.type,
+    application: f.application,
+    unit: f.unit,
+    totalQty: qtyByCode.get(f.code) ?? 0,
+    materialUnitCost: f.materialUnitCost,
+    installRate: f.installRate,
+    wastePct: f.wastePct,
+    cartonSize: f.cartonSize,
+    materialSource: f.materialSource,
+  }));
+  const pricingOpen = pricingRows.filter(
+    (r) =>
+      r.totalQty <= 0 ||
+      (r.materialSource !== "owner_furnishes" && r.materialUnitCost <= 0) ||
+      r.installRate <= 0
+  ).length;
+
+  // Rail states — done / active / todo per block, mirroring the same readiness the bid uses.
+  const sections: RailSection[] = [
+    {
+      id: "plans",
+      label: "Plans",
+      note: doc ? `${totalPages || "…"} page${totalPages === 1 ? "" : "s"}` : "Upload a plan",
+      state: doc ? "done" : "active",
+    },
+    {
+      id: "finishes",
+      label: "Finishes",
+      note: confirmed ? `${finishes.length} confirmed` : finishes.length ? `${finishes.length} to review` : "Read the schedule",
+      state: confirmed ? "done" : finishes.length ? "active" : "todo",
+    },
+    {
+      id: "pricing",
+      label: "Pricing",
+      note: inScope.length === 0 ? "Confirm finishes first" : pricingOpen ? `${pricingOpen} need input` : "All priced",
+      state: inScope.length === 0 ? "todo" : pricingOpen ? "active" : "done",
+    },
+    {
+      id: "bid",
+      label: "Bid",
+      note: hasSheet ? "Synced to Sheets" : "Review & sync",
+      state: hasSheet ? "done" : "todo",
+    },
+  ];
+
+  const meta = [project.gc, project.location].filter(Boolean).join(" · ") || "No GC · No location";
+
+  const rail = (
+    <WorkspaceRail
+      projectName={project.name}
+      projectMeta={meta}
+      sections={sections}
+      bidPrice={usd(bid.bidPrice)}
+      profit={bid.profit > 0 ? usd(bid.profit) : null}
+      focus={focus && ["plans", "finishes", "pricing", "bid"].includes(focus) ? focus : undefined}
+    />
+  );
 
   return (
-    <ProjectWorkspace projectId={id}>
-      <div className="page-head">
-        <h1 className="page-title">Overview</h1>
-        <div className="ov-head-actions">
-          <Link href={`/projects/${id}/plans`} className="btn">Open plans</Link>
+    <WorkspaceFrame rail={rail}>
+      {doc && <FinishReadRunner documentId={doc.id} status={readStatus} />}
+      <SheetSyncRunner projectId={id} hasSheet={hasSheet} />
+
+      <div className="flow">
+        <div className="flow-top">
+          <div>
+            <div className="flow-top-name">{project.name}</div>
+            <div className="flow-top-meta">{meta}</div>
+          </div>
           {pdfUrl && <a href={pdfUrl} target="_blank" rel="noreferrer" className="btn">Open PDF</a>}
         </div>
-      </div>
 
-      {/* Project status + horizontal pipeline */}
-      <div className="ov-statuscard">
-        <div className="ov-statuscard-top">
-          <div>
-            <div className="ov-next-kicker">Project status</div>
-            <div className="ov-statuscard-label" data-status={wf.currentStatus}>{STATUS_LABEL[wf.currentStatus] ?? wf.currentStatus}</div>
-          </div>
-          <div className="ov-statuscard-meta">
-            <div><span>Bid due</span><strong>{fmtDate(p.bidDate) ?? "—"}</strong></div>
-            <div><span>Updated</span><strong>{fmtDate(p.updatedAt)}</strong></div>
-          </div>
-        </div>
-        <ol className="ov-stepper">
-          {STEPS.map((s, i) => {
-            const st = wf.steps[s.key];
-            const state = st === "complete" ? "done" : st === "blocked" ? "blocked" : st === "pending" ? "todo" : "active";
-            return (
-              <li key={s.key} data-state={state}>
-                <span className="ov-step-tick">{state === "done" ? "✓" : i + 1}</span>
-                <span className="ov-step-label">{s.label}</span>
-              </li>
-            );
-          })}
-        </ol>
-      </div>
-
-      <div className="ov-grid">
-        <div className="ov-maincol">
-          {/* AI findings */}
-          <section className="ov-card">
-            <h2 className="ov-card-title">What the read found</h2>
-            <ul className="ov-findings">
-              {findings.map((f) => (
-                <li key={f.label}>
-                  <span className="ov-f-label">{f.label}</span>
-                  <span className="ov-f-right">
-                    {f.conf && <span className="ov-conf" data-c={f.conf}>{f.conf}</span>}
-                    <span className="ov-f-val" data-tone={f.tone}>{f.value}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-            {ai.finishReadStatus === "found" && (
-              <p className="ov-f-sub" style={{ marginTop: 10 }}>
-                {ai.confirmedFinishes > 0 ? `${ai.confirmedFinishes} confirmed` : `${ai.finishesFound} read`}
-                {ai.evidencePages.length ? ` · evidence ${ai.evidencePages.join(", ")}` : ""}
-                {ai.finishReadConfidence != null ? ` · confidence ${ai.finishReadConfidence.toFixed(2)}` : ""}
-              </p>
-            )}
-            {ai.finishReadStatus === "not_found" && ai.finishReadReason && (
-              <p className="ov-f-sub" style={{ marginTop: 10 }}>{ai.finishReadReason}</p>
-            )}
-            {(thumbUrl || docMeta) && (
-              <Link href={`/projects/${id}/plans`} className="ov-planpeek">
-                {thumbUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={thumbUrl} alt="Cover sheet" />
-                )}
-                <span>{docMeta ? `${docMeta.pageCount} page${docMeta.pageCount === 1 ? "" : "s"}` : ""} · View all pages →</span>
-              </Link>
-            )}
-          </section>
-
-          {/* The one next action */}
-          <section className="ov-next">
-            <div>
-              <div className="ov-next-kicker">Next step</div>
-              <div className="ov-next-label">{wf.nextAction.label}</div>
-            </div>
-            {wf.nextAction.key === "read_finishes" && doc ? (
-              <form action={readWholeDoc.bind(null, doc.id)}>
-                <button type="submit" className="btn btn-primary">{wf.nextAction.buttonText}</button>
-              </form>
-            ) : wf.nextAction.href ? (
-              <Link href={wf.nextAction.href} className="btn btn-primary">{wf.nextAction.buttonText}</Link>
-            ) : null}
-          </section>
-        </div>
-
-        <aside className="ov-aside">
-          <section className="ov-card">
-            <h2 className="ov-card-title">Project details</h2>
-            <dl className="ov-details">
-              {details.map(([k, v]) => (
-                <div key={k} className="ov-detail">
-                  <dt>{k}</dt>
-                  <dd className={v ? "" : "ov-empty"}>{v ?? "—"}</dd>
-                </div>
-              ))}
-            </dl>
-            {p.notes && <p className="ov-notes">{p.notes}</p>}
-            <div className="ov-updated">
-              {docMeta?.originalFilename ? `${docMeta.originalFilename} · ` : ""}updated {fmtDate(p.updatedAt)}
-            </div>
-          </section>
-
-          <section className="ov-card">
-            <h2 className="ov-card-title">Quick actions</h2>
-            <div className="ov-qa">
-              {pdfUrl && <a href={pdfUrl} target="_blank" rel="noreferrer" className="ov-qa-btn">Open PDF</a>}
-              {doc && ai.finishReadStatus !== "processing" && (
-                <form action={readWholeDoc.bind(null, doc.id)}>
-                  <button type="submit" className="ov-qa-btn">{ai.finishReadStatus === "not_started" ? "Read finishes" : "Re-read finishes"}</button>
-                </form>
+        {/* ── Plans ── */}
+        <section id="plans" className="flow-section">
+          <div className="flow-eyebrow">Plans <span className="flow-rule" /></div>
+          <h2 className="flow-h">The plan set</h2>
+          <p className="flow-sub">The architectural set this bid reads from. Open the full viewer to inspect any sheet.</p>
+          {doc ? (
+            <div className="card" style={{ display: "flex", gap: 16, alignItems: "center", padding: 16 }}>
+              {thumbUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={thumbUrl} alt="Plan cover"
+                  style={{ width: 84, height: 108, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)", flex: "none" }} />
               )}
-              <form action={passProject.bind(null, id)}>
-                <button type="submit" className="ov-qa-btn ov-qa-danger">Pass / Not a fit</button>
-              </form>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 600 }}>{doc.originalFilename ?? "Plan PDF"}</div>
+                <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 2 }}>
+                  {totalPages ? `${totalPages} pages` : "processing pages…"}
+                  {project.documents.length > 1 ? ` · ${project.documents.length} files` : ""}
+                </div>
+                <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+                  <Link href={`/projects/${id}/plans`} className="btn">Open plans</Link>
+                  {pdfUrl && <a href={pdfUrl} target="_blank" rel="noreferrer" className="btn">Open PDF</a>}
+                </div>
+              </div>
             </div>
-          </section>
-        </aside>
+          ) : (
+            <div className="empty">
+              <h2>No plan uploaded</h2>
+              <p>Upload the architectural set to start the bid.</p>
+              <Link href={`/projects/${id}/plans`} className="btn btn-primary">Upload a plan</Link>
+            </div>
+          )}
+        </section>
+
+        {/* ── Finishes ── */}
+        <section id="finishes" className="flow-section">
+          <div className="flow-eyebrow">Finishes <span className="flow-rule" /></div>
+          <h2 className="flow-h">Confirm the finishes</h2>
+          <p className="flow-sub">
+            What Claude read from the finish schedule. Fix anything that&apos;s off, set what&apos;s in scope, then confirm —
+            confirmed finishes flow into Pricing below.
+          </p>
+          {finishes.length > 0 ? (
+            <FinishReview projectId={id} planSheetId={sheet!.id} initial={finishes} initialAssignments={assignments} />
+          ) : !doc ? (
+            <div className="empty">
+              <h2>Upload a plan first</h2>
+              <p>Finishes come from the plan set — add it above, then they read automatically.</p>
+            </div>
+          ) : readStatus === "error" || readStatus === "not_found" ? (
+            <div className="empty">
+              <h2>{readStatus === "error" ? "The finish read didn’t finish" : "No finish schedule found"}</h2>
+              <p>
+                {readStatus === "error"
+                  ? reason || "Something went wrong reading the set. Try again."
+                  : reason || "No flooring finish schedule was found in this set. It may be a shell, structural, or incomplete drawing set."}
+              </p>
+              <form action={readWholeDoc.bind(null, doc.id)}>
+                <button type="submit" className="btn btn-primary">Read again</button>
+              </form>
+              <details style={{ marginTop: 18 }}>
+                <summary style={{ cursor: "pointer", fontSize: 13.5, fontWeight: 600, color: "var(--muted)" }}>Not a flooring job?</summary>
+                <form action={passProject.bind(null, id)} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
+                  <input name="reason" placeholder="Reason (e.g. no flooring scope)"
+                    style={{ font: "inherit", fontSize: 13, padding: "7px 11px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)", minWidth: 240, flex: 1, maxWidth: 380 }} />
+                  <button type="submit" className="btn" style={{ color: "var(--muted)" }}>Pass / Not a fit</button>
+                </form>
+              </details>
+            </div>
+          ) : (
+            // No completed result yet (just uploaded / still processing) — the read runs on its own.
+            <div className="empty">
+              <h2>Reading the plan set…</h2>
+              <p>Claude is scanning the whole set for a flooring finish schedule. This fills in on its own — no need to do anything.</p>
+            </div>
+          )}
+        </section>
+
+        {/* ── Pricing (rates + total takeoff, merged) ── */}
+        <section id="pricing" className="flow-section">
+          <div className="flow-eyebrow">Pricing <span className="flow-rule" /></div>
+          <h2 className="flow-h">Rates &amp; quantities</h2>
+          <p className="flow-sub">
+            One row per finish: set its total quantity and rates, and watch the line cost. This is your whole takeoff —
+            the bid only needs one total per finish.
+          </p>
+          <PricingEditor projectId={id} initial={pricingRows} />
+        </section>
+
+        {/* ── Bid ── */}
+        <section id="bid" className="flow-section">
+          <div className="flow-eyebrow">Bid <span className="flow-rule" /></div>
+          <h2 className="flow-h">The bid</h2>
+          <p className="flow-sub">
+            Google Sheets is the authoritative calculator; this is the live preview. Open the full estimate to sync and adjust.
+          </p>
+          <div className="card" style={{ padding: 20, display: "flex", flexWrap: "wrap", gap: 28, alignItems: "flex-end" }}>
+            <div>
+              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.09em", color: "var(--muted)" }}>Bid price</div>
+              <div style={{ fontFamily: "var(--font-mono), monospace", fontVariantNumeric: "tabular-nums", fontSize: 34, fontWeight: 600, color: "var(--marking)", letterSpacing: "-0.02em", lineHeight: 1.1 }}>
+                {usd(bid.bidPrice)}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.09em", color: "var(--muted)" }}>Cost</div>
+              <div style={{ fontFamily: "var(--font-mono), monospace", fontVariantNumeric: "tabular-nums", fontSize: 20, fontWeight: 600 }}>{usd(bid.pricedScopeCost)}</div>
+            </div>
+            {bid.profit > 0 && (
+              <div>
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.09em", color: "var(--muted)" }}>Profit</div>
+                <div style={{ fontFamily: "var(--font-mono), monospace", fontVariantNumeric: "tabular-nums", fontSize: 20, fontWeight: 600, color: "var(--green)" }}>{usd(bid.profit)}</div>
+              </div>
+            )}
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+              {hasSheet && project.sheetId && (
+                <a href={`https://docs.google.com/spreadsheets/d/${project.sheetId}`} target="_blank" rel="noreferrer" className="btn">Open Sheet</a>
+              )}
+              <Link href={`/projects/${id}/estimate`} className="btn btn-primary">Open full estimate</Link>
+            </div>
+          </div>
+          {pricingOpen > 0 && (
+            <p className="hint" style={{ color: "var(--gold)" }}>
+              {pricingOpen} finish{pricingOpen === 1 ? "" : "es"} still need a quantity or rate — the bid is incomplete until those are filled in Pricing.
+            </p>
+          )}
+        </section>
       </div>
-    </ProjectWorkspace>
+    </WorkspaceFrame>
   );
 }

@@ -31,6 +31,16 @@ export async function ProjectWorkspace({
   });
   if (!project) notFound();
 
+  // Stage pages (Plans/Finishes/Rates/Takeoff) open focused — full width, no rail — with one clear
+  // back affordance to the Overview hub. The Overview itself (no active stage) keeps the rail/steps.
+  if (active !== undefined) {
+    return (
+      <WorkspaceFrame focused backHref={`/projects/${projectId}`} backLabel="Overview" backSub={project.name}>
+        {children}
+      </WorkspaceFrame>
+    );
+  }
+
   const { stages, bid } = deriveWorkflow(project);
 
   const rail = (

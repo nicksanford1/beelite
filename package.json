@@ -32,6 +32,7 @@
     "@types/node": "^22.7.4",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "playwright-core": "^1.61.0",
     "prisma": "^6.16.2",
     "tsx": "^4.19.1",
     "typescript": "^5.6.2"

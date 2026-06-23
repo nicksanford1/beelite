@@ -3,8 +3,9 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { ProjectWorkspace } from "@/components/project-workspace";
 import { FinishReview } from "@/components/finish-review";
+import { FinishReadRunner } from "@/components/finish-read-runner";
 import { readWholeDoc, passProject } from "@/app/actions";
-import type { ExtractedFinish } from "@/lib/anthropic";
+import type { ExtractedFinish, FinishAssignment } from "@/lib/anthropic";
 
 export const dynamic = "force-dynamic";
 
@@ -36,19 +37,25 @@ export default async function FinishesPage({
   const finishes: ExtractedFinish[] = ext
     ? ((ext.corrected as any)?.finishes ?? (ext.rawOutput as any)?.finishes ?? [])
     : [];
+  const assignments: FinishAssignment[] = ext
+    ? ((ext.corrected as any)?.assignments ?? (ext.rawOutput as any)?.assignments ?? [])
+    : [];
   const firstDoc = project.documents[0];
 
-  const raw = (ext?.rawOutput ?? {}) as { status?: string; reason?: string; evidencePages?: string[] };
+  const raw = (ext?.rawOutput ?? {}) as { status?: string; reason?: string; evidencePages?: string[]; startedAt?: string };
   const status = raw.status ?? (finishes.length ? "found" : ext ? "not_found" : "");
   const reason = raw.reason ?? "";
   const evidencePages: string[] = raw.evidencePages ?? [];
 
   return (
     <ProjectWorkspace projectId={id} active="finishes">
+      {firstDoc && <FinishReadRunner documentId={firstDoc.id} status={status} />}
       <div className="page-head">
-        <h1 className="page-title">Finishes</h1>
+        <div>
+          <h1 className="page-title">Finishes</h1>
+          <p className="detail-meta" style={{ margin: "3px 0 0" }}>{project.name}</p>
+        </div>
       </div>
-      <p className="detail-meta">{project.name}</p>
 
       {errMessage && (
         <div className="banner banner-error" role="alert" style={{ margin: "12px 0", padding: "10px 14px", border: "1px solid var(--marking, #c0392b)", borderRadius: 6, background: "rgba(192,57,43,0.06)", color: "var(--marking, #c0392b)" }}>
@@ -81,12 +88,12 @@ export default async function FinishesPage({
                 {evidencePages.length ? ` Looked at: ${evidencePages.join(", ")}.` : ""}
               </div>
             )}
-            <h2 className="section-title">Review the finishes Claude found ({finishes.length})</h2>
-            <p className="detail-meta">
-              Edit anything that’s off, then confirm. Flagged rows are low-confidence or out-of-scope.
+            <h2 className="section-title" style={{ marginBottom: 6 }}>Review {finishes.length} flooring finishes</h2>
+            <p className="detail-meta" style={{ margin: "0 0 16px", maxWidth: 640 }}>
+              The priced list Claude pulled from the schedule — edit any row, then confirm.
               {ext.corrected ? " (Previously confirmed — re-confirm to update.)" : ""}
             </p>
-            <FinishReview projectId={id} planSheetId={sheet!.id} initial={finishes} />
+            <FinishReview projectId={id} planSheetId={sheet!.id} initial={finishes} initialAssignments={assignments} />
           </>
         ) : status === "possible" ? (
           <div className="empty">
@@ -129,18 +136,20 @@ export default async function FinishesPage({
         )}
       </section>
 
-      <form
-        action={passProject.bind(null, id)}
-        style={{ marginTop: 28, paddingTop: 16, borderTop: "1px solid var(--border)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
-      >
-        <span className="card-meta">Not a flooring job?</span>
-        <input
-          name="reason"
-          placeholder="Reason (e.g. no finish schedule / no flooring scope)"
-          style={{ font: "inherit", fontSize: 13, padding: "6px 10px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)", minWidth: 280, flex: 1, maxWidth: 420 }}
-        />
-        <button type="submit" className="btn" style={{ color: "var(--muted)" }}>Pass / Not a fit</button>
-      </form>
+      <details style={{ marginTop: 30, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+        <summary style={{ cursor: "pointer", fontSize: 13.5, fontWeight: 600, color: "var(--muted)" }}>Not a flooring job?</summary>
+        <form
+          action={passProject.bind(null, id)}
+          style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}
+        >
+          <input
+            name="reason"
+            placeholder="Reason (e.g. no finish schedule / no flooring scope)"
+            style={{ font: "inherit", fontSize: 13, padding: "7px 11px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)", minWidth: 280, flex: 1, maxWidth: 420 }}
+          />
+          <button type="submit" className="btn" style={{ color: "var(--muted)" }}>Pass / Not a fit</button>
+        </form>
+      </details>
     </ProjectWorkspace>
   );
 }

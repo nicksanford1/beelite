@@ -14,6 +14,7 @@ export type FinishCategory =
 
 export type ExtractedFinish = {
   code: string;
+  application?: "floor" | "base" | "transition" | "stair" | "accessory" | "other";
   type: string;
   description: string;
   unit: "SF" | "LF" | "EA" | "SY" | "other";
@@ -30,6 +31,18 @@ export type ExtractedFinish = {
   thickness?: string;
   needsReview?: boolean; // model unsure this belongs in flooring scope → user verifies
   sourceText?: string;
+  notes?: string;
+};
+
+export type FinishAssignment = {
+  finishCode: string;
+  level?: string;
+  roomNumber?: string;
+  roomName?: string;
+  sourcePage?: string;
+  sourceText?: string;
+  confidence: number;
+  needsReview: boolean;
   notes?: string;
 };
 
@@ -63,9 +76,10 @@ const FINISH_SCHEMA = {
   required: ["finishes"],
 } as const;
 
-function client() {
-  // Bounded timeout so a stalled read fails loudly instead of hanging the /finishes button.
-  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 90_000, maxRetries: 1 });
+function client(timeoutMs = 90_000) {
+  // Bounded timeout so a stalled read fails loudly instead of hanging the /finishes button. Long
+  // whole-document reads pass a larger ceiling and stream, so they don't trip the default 90s cap.
+  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: timeoutMs, maxRetries: 1 });
 }
 
 /** Hand the PDF (a finish-schedule page) to Claude; get back structured finishes. */
@@ -155,65 +169,136 @@ export type FinishReadResult = {
   pageRoles?: PageRoles;
   sheetIndex?: SheetLabel[];
   finishes: ExtractedFinish[];
+  assignments: FinishAssignment[];
 };
 
-// Guarded read: the model must PROVE a flooring finish schedule exists before extracting, and must
-// return "not_found" (empty) rather than scraping wall sections / assemblies / structural materials.
+// Guarded read — TRIMMED on purpose. One job: detect the flooring finish schedule and return the UNIQUE
+// flooring finishes. No per-page sheet index, no page-role classification, no per-room assignment grind —
+// that over-reach bloated the JSON until it truncated and silently failed. Asking for less makes the read
+// reliable on any plan set (the demo bar) and far less likely to truncate.
 const GUARDED_PROMPT = `You are a commercial flooring estimator's assistant reading a FULL construction
 plan set (PDF, many pages).
 
-STEP 1 — DETECT. Determine whether this set actually contains a flooring FINISH SCHEDULE, ROOM FINISH
-SCHEDULE, FINISH LEGEND, FINISH PLAN, or flooring MATERIAL SCHEDULE / flooring specification.
-
-STEP 2 — EXTRACT only if such a schedule/legend/spec exists. For each finish, record the sheet/page it
-came from in "sourcePage".
-
-HARD RULES — do not break these:
-- Extract a finish ONLY if it is explicitly listed as a floor finish, room finish, finish code, material
-  schedule item, or flooring spec. If you cannot point to where it was listed as a flooring finish, DO
-  NOT include it.
-- NEVER extract construction assemblies, wall sections, structural materials, gypsum board, insulation,
-  framing, sheathing, concrete slab, subfloor, roof/wall components, siding, or general building
-  materials — UNLESS explicitly listed as a flooring finish item in a finish schedule.
-- If there is NO usable flooring finish schedule/legend/spec, return status "not_found" and an EMPTY
-  finishes array. An empty result is the CORRECT answer when none exists. Do not invent finishes from
-  sections, assemblies, details, or general notes.
-- "sheet_index" is REQUIRED and is independent of finishes: it MUST contain one entry for EVERY page in
-  the PDF, in order, even when status is "not_found" or finishes is empty. It has nothing to do with
-  whether a finish schedule exists — it is just you reading each page's title block. Returning an empty
-  or partial sheet_index is a failure.
-
-STATUS field:
-- "found": a clear flooring finish schedule/legend/spec exists; you extracted from it.
-- "possible": there are pages that may contain flooring info but no clean schedule. List those pages in
-  evidence_pages; finishes may be empty or low-confidence.
-- "not_found": no flooring finish schedule/legend/spec anywhere in this set.
+Your ONE job: find the flooring FINISH SCHEDULE / ROOM FINISH SCHEDULE / FINISH LEGEND / finish callouts
+and list the UNIQUE flooring finishes — one row per distinct material that would get one price. The finish
+schedule is OFTEN a table in the corner of a floor-plan sheet (e.g. "FINISH SCHEDULE - 1ST FLOOR"), not a
+separate sheet — look across ALL pages, including tables on the floor plans.
 
 ${FINISH_SCHEDULE_PROMPT}
 
-CATEGORY — pick the closest flooring category. If it's flooring-related but you can't tell which,
-use "unknown_flooring_related" and set inScope=false, needsReview=true (the estimator will decide):
-  resilient · rubber · lvt_lvp · vct · carpet · tile · turf · sheet_vinyl · epoxy ·
-  polished_concrete · sealed_concrete · wood · laminate · base · transition · stair · prep ·
-  moisture_mitigation · adhesive · accessory · unknown_flooring_related · other
-Capture manufacturer/product/color/size/thickness when the schedule prints them; "" if not.
-sourceText = the short line you read it from. needsReview=true for anything you're unsure belongs to
-flooring scope. If status is "not_found", finishes MUST be [] and reason must say what was missing.
+CATEGORY — pick the closest flooring category; if flooring-related but you can't tell which, use
+"unknown_flooring_related" and set inScope=false:
+  resilient · rubber · lvt_lvp · vct · carpet · tile · turf · sheet_vinyl · epoxy · polished_concrete ·
+  sealed_concrete · wood · laminate · base · transition · stair · prep · moisture_mitigation · adhesive ·
+  accessory · unknown_flooring_related · other
 
-PAGE ROLES — while reading, also note which sheets serve as the drawing index/cover, the floor plans,
-and the specifications/details. List each role's sheet numbers (or "page N" if unnumbered) with a
-confidence (low|medium|high). Leave sheets empty + confidence "low" if you can't tell. These are
-observations to help the estimator navigate — do NOT guess, and they do not affect finish extraction.
+ONE ROW PER DISTINCT MATERIAL — never one row per room. Deduplicate the same material across every room
+and floor. The description should name the MATERIAL and its PRIMARY USE/LOCATION in plain words (e.g.
+"Epoxy resin floor — locker rooms & restrooms"; "Wood athletic floor — gymnasium") — summarize the typical
+use, do NOT list every room. If the schedule prints a manufacturer or product/spec reference for the
+material, include it in the description. application is
+floor|base|transition|stair|accessory|other. unit is SF (area), LF (wall base / transitions), EA, SY
+(carpet by the yard), or other. Preserve the printed code (e.g. LVT-1, CT-2); if one printed label is used
+for two applications, make stable codes like TILE-FLOOR and TILE-BASE — never append a room number.
 
-SHEET INDEX (REQUIRED — always fill this) — walk the PDF page by page and output one "sheet_index" entry
-for EVERY page, in page order, with the sheet number and sheet title read from that page's title block
-(e.g. {"page":3,"sheet":"A3.1","title":"INTERIOR DETAILS"}). The number of entries MUST equal the number
-of pages in the PDF. Use "" for sheet and/or title only when that page's title block has none visible —
-still emit the entry with its page number. This is just transcribing the title block, so it applies to
-every set regardless of finishes; do not skip it, do not leave it empty, and do not invent values.
+ROOM ASSIGNMENTS — separately, in "assignments", list WHERE each finish is used: one row per scheduled
+room/area, with finishCode (must exactly match a code in finish_definitions), level (the floor, e.g. "1st"
+or "2nd"), roomNumber, roomName, and sourcePage (the sheet the schedule is on, e.g. "A-111"). Keep the
+materials deduplicated in finish_definitions; the per-room occurrences go here. Set needsReview=true for any
+row you're unsure about. If the schedule lists no room detail, return assignments as [].
 
-Return ONLY a JSON object (no prose, no markdown fences) shaped exactly:
-{"finish_schedule_status":"found|possible|not_found","confidence":0.0,"reason":"one sentence","evidence_pages":["A2.4"],"page_roles":{"drawingIndex":{"sheets":[],"confidence":"low"},"floorPlans":{"sheets":[],"confidence":"low"},"specs":{"sheets":[],"confidence":"low"}},"sheet_index":[{"page":1,"sheet":"","title":""}],"finishes":[{"code":"","type":"","description":"","manufacturer":"","product":"","color":"","size":"","thickness":"","unit":"SF|LF|EA|SY|other","category":"lvt_lvp","inScope":true,"needsReview":false,"reason":"","confidence":0,"sourcePage":"","sourceText":"","notes":""}]}`;
+WHAT TO LIST vs SKIP — this is the most important rule, and the one that makes the count stable across
+reads. List ONLY finishes a FLOORING contractor installs: FLOOR materials, WALL BASE, STAIR finishes, and
+floor TRANSITIONS / thresholds. A finish-schedule table usually MIXES these with finishes other trades own
+— do NOT return a row for any of these (skip them entirely; omitting them is correct, not an omission):
+  • PAINT and wall coatings — codes like PT-*, P-*, and "PT-#" callouts in wall/ceiling columns.
+  • CEILING finishes — acoustic ceiling panel/tile and gyp ceiling: ACP-*, ACT-*, GYPCP-*, WFCP-*, any *-CP.
+  • WALL-ONLY finishes — wall covering, and WALL TILE / wainscot (e.g. CT-* applied "to 7'-4"" up a wall).
+Floor tile IS in scope; wall tile is NOT — use the height/column cue (a tile "to 7'-4"" or in a WALL column
+is a wall finish). When unsure whether a row is a floor finish, include it with inScope=false rather than
+dropping a real floor material — but never include paint/ceiling, which are never flooring.
+
+KEYED SCHEDULES — some sets use a TWO-PART key: a "finish key" mapping each room to a LETTER (A, B, C…),
+and a "finish schedule" mapping each letter to the actual materials. When you see this, RESOLVE each room's
+letter to the real material codes (room → key "C" → EPX-1) and put the resolved code in finishCode — never
+the bare letter. Only record rooms whose finish you can actually read; flag uncertain ones needsReview=true.
+When one key cell packs SEVERAL floor materials (e.g. key D = "VCT-1, VCT-2, VCT-3"), return ONE row per
+distinct material in finish_definitions — and use the printed code verbatim (don't normalize "SEALED
+CONCRETE" to "SEALED-CONC", or merge "WD-1" with a "WD-1/PT-2" border callout — list the floor material once
+as WD-1).
+
+WHERE YOU FOUND IT + WHAT'S PRINTED — for EVERY finish, set sourcePage to the sheet number you read it
+from (the schedule sheet, or the floor-plan sheet whose callout names it — e.g. "A102", "A6.1"). This is
+how the estimator jumps to the source, so it's required even when there's no clean schedule. If the
+drawing prints a manufacturer, product/series, or a gauge/wear-layer/thickness for the material, capture
+them in manufacturer / product / thickness — but ONLY when actually printed (leave "" otherwise; never
+guess a brand — most schedules are code-only and that's expected). Put any short note that changes how the
+finish is priced in notes (e.g. "match existing", "salvage & reinstall existing", "demo existing finish
+first", "owner-furnished"). Keep notes terse.
+
+finish_schedule_status:
+- "found": a clear flooring finish schedule/legend exists and you extracted its finishes.
+- "possible": some pages may have flooring info but there is no clean schedule — list them in evidence_pages.
+- "not_found": no flooring finish schedule/legend anywhere — return an EMPTY finish_definitions. An empty
+  result is the CORRECT answer when none truly exists. NEVER invent finishes from wall sections, assemblies,
+  structural details, or general notes.
+
+Set reason to one sentence on what you found (or what was missing). confidence is 0..1.`;
+
+// Structured-output schema — the API guarantees a valid JSON object in this exact shape, so a long read
+// can't come back truncated/malformed and get silently mistaken for "no schedule found".
+const GUARDED_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    finish_schedule_status: { type: "string", enum: ["found", "possible", "not_found"] },
+    confidence: { type: "number" },
+    reason: { type: "string" },
+    evidence_pages: { type: "array", items: { type: "string" } },
+    finish_definitions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          code: { type: "string" },
+          application: { type: "string", enum: ["floor", "base", "transition", "stair", "accessory", "other"] },
+          type: { type: "string" },
+          description: { type: "string" },
+          unit: { type: "string", enum: ["SF", "LF", "EA", "SY", "other"] },
+          category: { type: "string" },
+          inScope: { type: "boolean" },
+          confidence: { type: "number" },
+          sourcePage: { type: "string" }, // sheet where this finish was found (e.g. "A102")
+          // Optional — captured ONLY when printed on the drawing; "" when absent (never guessed).
+          manufacturer: { type: "string" },
+          product: { type: "string" },
+          thickness: { type: "string" }, // gauge / wear layer when printed (e.g. "0.080" / "20 mil")
+          notes: { type: "string" }, // short pricing-relevant note (e.g. "match existing", "salvage & reinstall")
+        },
+        required: ["code", "application", "type", "description", "unit", "category", "inScope", "confidence", "sourcePage"],
+      },
+    },
+    assignments: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          finishCode: { type: "string" },
+          level: { type: "string" },
+          roomNumber: { type: "string" },
+          roomName: { type: "string" },
+          sourcePage: { type: "string" },
+          confidence: { type: "number" },
+          needsReview: { type: "boolean" },
+        },
+        required: ["finishCode", "level", "roomNumber", "roomName", "sourcePage", "confidence", "needsReview"],
+      },
+    },
+  },
+  required: ["finish_schedule_status", "confidence", "reason", "evidence_pages", "finish_definitions", "assignments"],
+} as const;
 
 // Normalize one model finish into ExtractedFinish: the model returns "inScope"; downstream uses
 // "includedInFlooringScope". Keep the richer optional fields when present. Never throw on a bad row.
@@ -223,6 +308,11 @@ function normalizeExtracted(f: any): ExtractedFinish {
   const opt = (v: unknown) => (typeof v === "string" && v ? v : undefined);
   return {
     code: String(f?.code ?? ""),
+    application: (["floor", "base", "transition", "stair", "accessory", "other"].includes(f?.application)
+      ? f.application
+      : f?.category === "base" || f?.category === "transition" || f?.category === "stair"
+        ? f.category
+        : f?.unit === "SF" || f?.unit === "SY" ? "floor" : "other") as ExtractedFinish["application"],
     type: String(f?.type ?? ""),
     description: String(f?.description ?? ""),
     unit: (["SF", "LF", "EA", "SY", "other"].includes(f?.unit) ? f.unit : "other") as ExtractedFinish["unit"],
@@ -240,6 +330,47 @@ function normalizeExtracted(f: any): ExtractedFinish {
     sourceText: opt(f?.sourceText),
     notes: opt(f?.notes),
   };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeAssignment(a: any): FinishAssignment {
+  const opt = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+  return {
+    finishCode: String(a?.finishCode ?? "").trim(),
+    level: opt(a?.level),
+    roomNumber: opt(a?.roomNumber),
+    roomName: opt(a?.roomName),
+    sourcePage: opt(a?.sourcePage),
+    sourceText: opt(a?.sourceText),
+    confidence: typeof a?.confidence === "number" ? a.confidence : 0,
+    needsReview: a?.needsReview === true,
+    notes: opt(a?.notes),
+  };
+}
+
+function uniqueFinishDefinitions(rows: ExtractedFinish[]): ExtractedFinish[] {
+  const unique = new Map<string, ExtractedFinish>();
+  for (const row of rows) {
+    const code = row.code.trim();
+    if (!code) continue;
+    const previous = unique.get(code);
+    if (!previous) {
+      unique.set(code, { ...row, code });
+      continue;
+    }
+    // Same priced identity repeated by the model: retain the strongest definition deterministically.
+    if (previous.unit === row.unit && previous.application === row.application) {
+      if (row.confidence > previous.confidence) unique.set(code, { ...row, code });
+      continue;
+    }
+    // A printed label used for two applications needs two stable pricing keys, never room suffixes.
+    const suffix = String(row.application ?? row.unit ?? "other").toUpperCase().replace(/[^A-Z0-9]+/g, "-");
+    let candidate = `${code}-${suffix}`;
+    let n = 2;
+    while (unique.has(candidate)) candidate = `${code}-${suffix}-${n++}`;
+    unique.set(candidate, { ...row, code: candidate });
+  }
+  return [...unique.values()];
 }
 
 // Parse the page_roles observations, tolerating a missing/partial object. Returns undefined when absent.
@@ -263,33 +394,66 @@ function stripToJson(raw: string): string {
   return body;
 }
 
+// $/MTok — standard Anthropic tier pricing (estimate for the cost log; verify against current rates).
+// $ per million tokens (input / output). Opus 4.8 is $5/$25 — the old $15/$75 here overstated every
+// read's cost ~3x in the logs (the actual per-read finish read is ~$0.20, not ~$0.59).
+const PRICE: Record<string, { in: number; out: number }> = {
+  "claude-sonnet-4-6": { in: 3, out: 15 },
+  "claude-haiku-4-5": { in: 1, out: 5 },
+  "claude-opus-4-8": { in: 5, out: 25 },
+};
+
+// Log every Claude call's tokens, time, stop reason and estimated cost — so latency/cost are visible
+// in the server logs instead of being a black box (run `npm start` and watch the terminal).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function logUsage(label: string, res: any, seconds: number) {
+  const u = res?.usage ?? {};
+  const inT = u.input_tokens ?? 0;
+  const outT = u.output_tokens ?? 0;
+  const p = PRICE[res?.model] ?? { in: 0, out: 0 };
+  const cost = (inT / 1e6) * p.in + (outT / 1e6) * p.out;
+  console.log(`[anthropic] ${label} model=${res?.model} in=${inT} out=${outT} tok ${seconds}s stop=${res?.stop_reason} ~$${cost.toFixed(4)}`);
+}
+
 /**
- * Guarded whole-document read: Anthropic fetches the PDF by URL (our server never downloads it). Returns
- * a 3-state result (found / possible / not_found) so "no schedule" is an explicit, correct answer — not
- * out-of-scope noise. No page tagging. Defaults to Sonnet (whole-doc is token-heavy).
+ * Guarded whole-document read: Anthropic fetches the PDF by URL (we never download the big file). Uses
+ * structured JSON output so the result is always valid + parseable, streams so long reads don't time out,
+ * and THROWS on an empty/unparseable response so the caller records "error" (retryable) — never a silent
+ * "not_found". Trimmed to finish definitions only. Defaults to Sonnet (whole-doc is token-heavy).
  */
-export async function readFinishesGuarded(pdfUrl: string, model = "claude-sonnet-4-6") {
-  const res = await client().messages.create({
+export async function readFinishesGuarded(pdf: string | Buffer, model = "claude-sonnet-4-6") {
+  const started = Date.now();
+  // Accept a signed URL (Anthropic fetches it — production path) OR raw PDF bytes (base64-inlined).
+  // The bytes path lets us send a focused page SUBSET without uploading — cheaper, tighter first reads.
+  const source =
+    typeof pdf === "string"
+      ? { type: "url", url: pdf }
+      : { type: "base64", media_type: "application/pdf", data: pdf.toString("base64") };
+  const stream = client(600_000).messages.stream({
     model,
-    max_tokens: 8000,
+    max_tokens: 16000,
     messages: [
       {
         role: "user",
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         content: [
-          { type: "document", source: { type: "url", url: pdfUrl } },
+          { type: "document", source },
           { type: "text", text: GUARDED_PROMPT },
         ] as any,
       },
     ],
+    // @ts-expect-error output_config is newer than the installed SDK types
+    output_config: { format: { type: "json_schema", schema: GUARDED_SCHEMA } },
   });
+  const res = await stream.finalMessage();
+  logUsage("readFinishesGuarded", res, Math.round((Date.now() - started) / 1000));
+
   const textBlock = res.content.find((b) => b.type === "text") as { text: string } | undefined;
-  let parsed: Record<string, unknown> = {};
-  try {
-    parsed = JSON.parse(stripToJson(textBlock?.text ?? "{}"));
-  } catch {
-    parsed = {};
-  }
+  if (!textBlock?.text) throw new Error("finish read returned no content");
+  // Structured output guarantees valid JSON; if it's truncated/unparseable this throws and the caller
+  // records an ERROR (retryable) instead of masking it as "no schedule found".
+  const parsed = JSON.parse(textBlock.text) as Record<string, unknown>;
+
   const statusRaw = String(parsed.finish_schedule_status ?? "").toLowerCase();
   const status: ScheduleStatus = statusRaw === "found" || statusRaw === "possible" ? (statusRaw as ScheduleStatus) : "not_found";
   const result: FinishReadResult = {
@@ -297,14 +461,12 @@ export async function readFinishesGuarded(pdfUrl: string, model = "claude-sonnet
     confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0,
     reason: typeof parsed.reason === "string" ? parsed.reason : "",
     evidencePages: Array.isArray(parsed.evidence_pages) ? parsed.evidence_pages.map(String) : [],
-    pageRoles: parsePageRoles(parsed.page_roles),
-    sheetIndex: Array.isArray(parsed.sheet_index)
-      ? parsed.sheet_index
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((s: any) => ({ page: Number(s?.page) || 0, sheet: String(s?.sheet ?? ""), title: String(s?.title ?? "") }))
-          .filter((s: SheetLabel) => s.page > 0)
-      : undefined,
-    finishes: Array.isArray(parsed.finishes) ? parsed.finishes.map(normalizeExtracted) : [],
+    finishes: uniqueFinishDefinitions(
+      Array.isArray(parsed.finish_definitions) ? parsed.finish_definitions.map(normalizeExtracted) : []
+    ),
+    assignments: Array.isArray(parsed.assignments)
+      ? parsed.assignments.map(normalizeAssignment).filter((a) => a.finishCode)
+      : [],
   };
   return { result, model: res.model, usage: res.usage };
 }
@@ -333,8 +495,9 @@ Return ONLY a JSON object, no prose, no markdown fences, shaped exactly:
 
 /** Read just the cover/title sheet → structured project metadata (for the upload→confirm flow). */
 export async function extractProjectInfo(coverImageB64: string) {
+  const started = Date.now();
   const res = await client().messages.create({
-    model: EXTRACTION_MODEL,
+    model: "claude-sonnet-4-6", // Sonnet reads the (often dense) cover/info sheet reliably; Haiku came back near-empty and wasn't faster
     max_tokens: 1500,
     messages: [
       {
@@ -347,6 +510,7 @@ export async function extractProjectInfo(coverImageB64: string) {
       },
     ],
   });
+  logUsage("extractProjectInfo", res, Math.round((Date.now() - started) / 1000));
   const textBlock = res.content.find((b) => b.type === "text") as { text: string } | undefined;
   let body = (textBlock?.text ?? "").trim();
   const fenced = body.match(/```(?:json)?\s*([\s\S]*?)\s*```/);

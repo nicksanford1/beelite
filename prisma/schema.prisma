@@ -59,33 +59,34 @@ model ScopeTemplateItem {
 
 // ── Project / per bid ────────────────────────────────────────
 model Project {
-  id         String             @id @default(cuid())
-  companyId  String
-  company    Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  name          String
-  bidDate       DateTime?
-  gc            String? // GC / Customer
-  location      String?
-  projectType   String? // e.g. "Office TI", "Restaurant", "Worship / Commercial"
-  architect     String?
-  estimator     String?
-  leadSource    String? // Permit, GC email, referral, …
-  internalBidNum String?
+  id                String             @id @default(cuid())
+  companyId         String
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name              String
+  bidDate           DateTime?
+  gc                String? // GC / Customer
+  location          String?
+  projectType       String? // e.g. "Office TI", "Restaurant", "Worship / Commercial"
+  architect         String?
+  estimator         String?
+  leadSource        String? // Permit, GC email, referral, …
+  internalBidNum    String?
   // Structured cover-read metadata (from extractProjectInfo) — preserved, not stuffed into notes.
-  owner         String?
-  squareFeet    String? // kept as text: plans say "12,456 SF" / "approx 22,600" — normalize later
-  projectNumber String?
-  issueDate     String? // as printed on the title block; not a real Date yet
-  notes         String?
-  status        String             @default("draft") // label only
-  sheetId       String? // Google Sheet id (after template copy)
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @default(now()) @updatedAt
-  documents  Document[]
-  finishes   ProjectFinish[]
-  scopeItems ProjectScopeItem[]
-  takeoff    TakeoffLine[]
-  settings   EstimateSettings?
+  owner             String?
+  squareFeet        String? // kept as text: plans say "12,456 SF" / "approx 22,600" — normalize later
+  projectNumber     String?
+  issueDate         String? // as printed on the title block; not a real Date yet
+  notes             String?
+  status            String             @default("draft") // label only
+  sheetId           String? // Google Sheet id (after template copy)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @default(now()) @updatedAt
+  documents         Document[]
+  finishes          ProjectFinish[]
+  finishAssignments FinishAssignment[]
+  scopeItems        ProjectScopeItem[]
+  takeoff           TakeoffLine[]
+  settings          EstimateSettings?
 }
 
 model Document {
@@ -115,25 +116,47 @@ model PlanSheet {
 }
 
 model ProjectFinish {
-  id               String  @id @default(cuid())
+  id               String             @id @default(cuid())
   projectId        String
-  project          Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project          Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   code             String
   type             String
   description      String
   unit             String
   category         String
-  inScope          Boolean @default(true)
+  application      String             @default("other") // floor | base | transition | stair | accessory | other
+  inScope          Boolean            @default(true)
   // v5 rates (see claude/v5-math-contract.md). Install is always a per-unit sub rate.
-  materialUnitCost Float   @default(0) // $/unit Elite pays the supplier
-  installRate      Float   @default(0) // $/unit Elite pays the sub
-  wastePct         Float   @default(0)
+  materialUnitCost Float              @default(0) // $/unit Elite pays the supplier
+  installRate      Float              @default(0) // $/unit Elite pays the sub
+  wastePct         Float              @default(0)
   cartonSize       Float?
-  materialSource   String  @default("elite_furnishes") // elite_furnishes | owner_furnishes
-  rateStatus       String  @default("needs_rate") // seeded | manual | needs_rate (provenance; effective status computed)
+  materialSource   String             @default("elite_furnishes") // elite_furnishes | owner_furnishes
+  rateStatus       String             @default("needs_rate") // seeded | manual | needs_rate (provenance; effective status computed)
   libraryItemId    String? // provenance: which FinishLibraryItem seeded this
+  assignments      FinishAssignment[]
 
   @@unique([projectId, code]) // Sheet assumes unique finish codes per project
+}
+
+// A finish is priced once; assignments record every room/area where the schedule uses it.
+model FinishAssignment {
+  id          String        @id @default(cuid())
+  projectId   String
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  finishId    String
+  finish      ProjectFinish @relation(fields: [finishId], references: [id], onDelete: Cascade)
+  level       String?
+  roomNumber  String?
+  roomName    String?
+  sourceSheet String?
+  sourceText  String?
+  confidence  Float         @default(0)
+  needsReview Boolean       @default(false)
+  notes       String?
+
+  @@index([projectId])
+  @@index([finishId])
 }
 
 model ProjectScopeItem {

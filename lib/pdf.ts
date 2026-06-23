@@ -1,5 +1,7 @@
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
+const PDFJS_ERRORS_ONLY = 0;
+
 export type PageScan = {
   pageNumber: number;
   sheetNumber: string | null;
@@ -80,27 +82,51 @@ export async function renderPage(
   mime: "image/png" | "image/jpeg" = "image/png"
 ): Promise<Buffer> {
   const { createCanvas } = await import("@napi-rs/canvas");
-  const doc = await getDocument({ data: new Uint8Array(bytes), useSystemFonts: true }).promise;
-  const page = await doc.getPage(pageNumber);
-  const viewport = page.getViewport({ scale });
-  const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await page.render({ canvasContext: ctx, viewport, canvas } as any).promise;
-  return mime === "image/jpeg" ? canvas.toBuffer("image/jpeg", 88) : canvas.toBuffer("image/png");
+  const doc = await getDocument({
+    data: new Uint8Array(bytes),
+    useSystemFonts: true,
+    verbosity: PDFJS_ERRORS_ONLY,
+  }).promise;
+  try {
+    const page = await doc.getPage(pageNumber);
+    try {
+      const viewport = page.getViewport({ scale });
+      const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await page.render({ canvasContext: ctx, viewport, canvas } as any).promise;
+      return mime === "image/jpeg" ? canvas.toBuffer("image/jpeg", 88) : canvas.toBuffer("image/png");
+    } finally {
+      page.cleanup();
+    }
+  } finally {
+    await doc.destroy();
+  }
 }
 
 /** Extract each page's text and score it. */
 export async function scanPdf(bytes: Buffer): Promise<PageScan[]> {
-  const doc = await getDocument({ data: new Uint8Array(bytes), useSystemFonts: true }).promise;
+  const doc = await getDocument({
+    data: new Uint8Array(bytes),
+    useSystemFonts: true,
+    verbosity: PDFJS_ERRORS_ONLY,
+  }).promise;
   const pages: PageScan[] = [];
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i);
-    const tc = await page.getTextContent();
-    const text = (tc.items as Array<{ str?: string }>).map((it) => it.str ?? "").join(" ");
-    pages.push(scorePage(i, text));
+  try {
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      try {
+        const tc = await page.getTextContent();
+        const text = (tc.items as Array<{ str?: string }>).map((it) => it.str ?? "").join(" ");
+        pages.push(scorePage(i, text));
+      } finally {
+        page.cleanup();
+      }
+    }
+    return pages;
+  } finally {
+    await doc.destroy();
   }
-  return pages;
 }

@@ -7,6 +7,7 @@ type Row = {
   id: string;
   code: string;
   type: string;
+  application: string;
   materialUnitCost: number;
   installRate: number;
   wastePct: number;
@@ -34,6 +35,7 @@ export function RatesEditor({ projectId, initial }: { projectId: string; initial
           <thead>
             <tr style={{ color: "var(--muted)", fontSize: 12, textAlign: "left" }}>
               <th style={cell}>Finish</th>
+              <th style={cell}>Application</th>
               <th style={cell}>Material $/u</th>
               <th style={cell}>Install $/u (sub)</th>
               <th style={cell}>Waste %</th>
@@ -51,6 +53,7 @@ export function RatesEditor({ projectId, initial }: { projectId: string; initial
                     <strong>{r.code}</strong>
                     <div style={{ color: "var(--muted)", fontSize: 12 }}>{r.type}</div>
                   </td>
+                  <td style={cell}><span className="badge">{r.application}</span></td>
                   <td style={cell}>
                     <input style={{ ...num, opacity: owner ? 0.4 : 1 }} type="number" step="0.01" min="0" disabled={owner}
                       value={owner ? "" : r.materialUnitCost}

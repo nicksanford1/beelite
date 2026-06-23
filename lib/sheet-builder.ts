@@ -9,13 +9,12 @@ import type { sheets_v4 } from "googleapis";
 
 const N = 200; // fill-down rows for formula tabs (covers large finish schedules; Codex v5 #4)
 const ROWS_END = N + 1; // last formula row index (1-based) → formatting ranges track N
-const ENGINE_VERSION = "beelite-v5"; // written to App_Settings!D1; sync checks it before reusing a sheet
+const ENGINE_VERSION = "beelite-v12"; // v12: Waste as %, green profit, BID PRICE highlight, auto-sized Description
 
 const ID = {
   Summary: 10,
   Estimate: 11,
   Rates: 12,
-  Assumptions: 13,
   App_Finishes: 20,
   App_Takeoff: 21,
   App_Scope: 22,
@@ -27,7 +26,6 @@ const MY_TABS = [
   { sheetId: ID.Summary, title: "Summary" },
   { sheetId: ID.Estimate, title: "Estimate" },
   { sheetId: ID.Rates, title: "Rates" },
-  { sheetId: ID.Assumptions, title: "Assumptions" },
   { sheetId: ID.App_Finishes, title: "App_Finishes", hidden: true },
   { sheetId: ID.App_Takeoff, title: "App_Takeoff", hidden: true },
   { sheetId: ID.App_Scope, title: "App_Scope", hidden: true },
@@ -43,14 +41,17 @@ function fillBlock(colTemplates: string[], rows: number): (string | number)[][] 
 }
 
 // ── Rates tab: default / override / effective (override survives re-sync) ──
+// Headers are display-only — the formulas reference cells by column letter, not these labels — so
+// these are safe to make human-friendly. "(library)" cols are hidden; "override" cols are the yellow
+// editable ones; the bare label is the EFFECTIVE value actually used in the bid.
 const ratesHeader = [
-  "code",
-  "defaultMaterialUnitCost", "overrideMaterialUnitCost", "effectiveMaterialUnitCost",
-  "defaultInstallRate", "overrideInstallRate", "effectiveInstallRate",
-  "defaultWastePct", "overrideWastePct", "effectiveWastePct",
-  "defaultCartonSize", "overrideCartonSize", "effectiveCartonSize",
-  "defaultMaterialSource", "overrideMaterialSource", "effectiveMaterialSource",
-  "notes",
+  "Finish",
+  "Material $/u (library)", "Material override", "Material $/u",
+  "Install $/u (library)", "Install override", "Install $/u",
+  "Waste % (library)", "Waste override", "Waste %",
+  "Carton (library)", "Carton override", "Carton size",
+  "Source (library)", "Source override", "Material source",
+  "Notes", "Application",
 ];
 const ratesBtoQ = [
   '=IF($A2="","",XLOOKUP($A2,App_Rates!$A:$A,App_Rates!$B:$B,0))', // B default material $/u
@@ -118,6 +119,7 @@ const bidBlock: [string, string][] = [
   ["Tax base", '=IFS($V$12="material_cost_only",$V$1,$V$12="material_sell_only",$V$4,$V$12="total_sell_plus_freight",$V$6+$V$8)'], // V14
   ["Tax", "=$V$14*$V$13"], // V15
   ["BID PRICE", "=$V$6+$V$8+$V$15"], // V16
+  ["Bid $/SF", '=IF($V$16>0,IFERROR($V$16/SUMIF($C$2:$C,"SF",$D$2:$D),""),"")'], // V17 — bid price ÷ total SF
 ];
 
 const RNG = "$2:$1000";
@@ -125,7 +127,7 @@ const RNG = "$2:$1000";
 const summaryStatement: (string)[][] = [
   ["BID PROPOSAL", "", ""],
   ["=App_Settings!$B$1", "", ""],
-  ['="GC: "&App_Settings!$B$2&"   ·   "&App_Settings!$B$3&"   ·   Due "&App_Settings!$B$4', "", ""],
+  ['=IF(App_Settings!$B$2<>"","GC: "&App_Settings!$B$2&"   ·   ","")&App_Settings!$B$3&IF(App_Settings!$B$4<>"","   ·   Due "&App_Settings!$B$4,"")', "", ""],
   ["", "", ""],
   ["", "Cost", "Price"],
   ["Material (Elite furnishes)", "=Estimate!$V$1", "=Estimate!$V$4"],
@@ -138,6 +140,7 @@ const summaryStatement: (string)[][] = [
   ["   margin on price", "", "=Estimate!$V$11"],
   ["Tax", "", "=Estimate!$V$15"],
   ["BID PRICE", "", "=Estimate!$V$16"],
+  ["Bid per SF", "", "=Estimate!$V$17"],
 ];
 const summaryChecks: (string)[][] = [
   ["Checks (0 = ready to send)", ""],
@@ -151,7 +154,7 @@ const summaryChecks: (string)[][] = [
 ];
 
 const NAMED = [
-  { name: "app_finishes", sheetId: ID.App_Finishes, startRowIndex: 1, endColumnIndex: 6 },
+  { name: "app_finishes", sheetId: ID.App_Finishes, startRowIndex: 1, endColumnIndex: 7 },
   { name: "app_takeoff", sheetId: ID.App_Takeoff, startRowIndex: 1, endColumnIndex: 6 },
   { name: "app_scope", sheetId: ID.App_Scope, startRowIndex: 1, endColumnIndex: 3 },
   { name: "app_rates", sheetId: ID.App_Rates, startRowIndex: 1, endColumnIndex: 6 },
@@ -168,7 +171,7 @@ export interface BidInput {
   bidDate: Date | null;
   notes: string | null;
   finishes: {
-    code: string; type: string; description: string; unit: string; category: string;
+    code: string; type: string; description: string; unit: string; category: string; application: string;
     inScope: boolean; materialUnitCost: number; installRate: number; wastePct: number;
     cartonSize: number | null; materialSource: string;
   }[];
@@ -184,8 +187,8 @@ const ymd = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
 
 export function bidToTables(bid: BidInput) {
   const appFinishes: Cell[][] = [
-    ["code", "type", "description", "unit", "category", "inScope"],
-    ...bid.finishes.map((f) => [f.code, f.type, f.description, f.unit, f.category, f.inScope ? "TRUE" : "FALSE"]),
+    ["code", "type", "description", "unit", "category", "inScope", "application"],
+    ...bid.finishes.map((f) => [f.code, f.type, f.description, f.unit, f.category, f.inScope ? "TRUE" : "FALSE", f.application]),
   ];
   const appRates: Cell[][] = [
     ["code", "materialUnitCost", "installRate", "wastePct", "cartonSize", "materialSource"],
@@ -235,24 +238,26 @@ function formulaData() {
     { range: "Rates!A1", values: [ratesHeader] },
     { range: "Rates!A2", values: [['=IFERROR(App_Rates!$A$2:$A,"")']] },
     { range: "Rates!B2", values: fillBlock(ratesBtoQ, N) },
+    { range: "Rates!R1", values: [["application"]] },
+    { range: "Rates!R2", values: fillBlock(['=IF($A2="","",XLOOKUP($A2,App_Finishes!$A:$A,App_Finishes!$G:$G,""))'], N) },
     { range: "Estimate!A1", values: [estHeader] },
     { range: "Estimate!A2", values: [['=IFERROR(UNIQUE(FILTER(App_Finishes!$A$2:$A,App_Finishes!$F$2:$F=TRUE)),"")']] },
     { range: "Estimate!B2", values: fillBlock(estBtoS, N) },
+    { range: "Estimate!T1", values: [["Application"]] },
+    { range: "Estimate!T2", values: fillBlock(['=IF($A2="","",XLOOKUP($A2,App_Finishes!$A:$A,App_Finishes!$G:$G,""))'], N) },
     { range: "Estimate!U1", values: bidBlock.map(([l, f]) => [l, f]) },
     { range: "Summary!A1", values: summaryStatement },
-    { range: "Summary!A17", values: [["Scope assumptions"]] },
-    { range: "Summary!A18", values: [['=IFERROR(FILTER(App_Scope!$A$2:$A&" — "&App_Scope!$B$2:$B&IF(App_Scope!$C$2:$C<>""," (allowance $"&App_Scope!$C$2:$C&")",""),App_Scope!$A$2:$A<>""),"")']] },
     { range: "Summary!E1", values: summaryChecks },
     { range: "App_Settings!D1", values: [[ENGINE_VERSION]] }, // engine-version sentinel (Codex v5 #1)
-    { range: "Assumptions!A1", values: [["Assumptions (auto from scope — do not edit)", "", "Manual notes (type here)"]] },
-    { range: "Assumptions!A2", values: [['=IFERROR(FILTER(App_Scope!$A$2:$A&" — "&App_Scope!$B$2:$B&IF(App_Scope!$C$2:$C<>""," (allowance $"&App_Scope!$C$2:$C&")",""),App_Scope!$A$2:$A<>""),"")']] },
   ];
 }
 
 // ── Formatting (makes the Sheet a presentable statement, not a raw grid) ──
-const TEAL = { red: 0.05, green: 0.5, blue: 0.45 };
+const BRAND = { red: 0.929, green: 0.11, blue: 0.141 }; // Elite red — Summary banner
 const WHITE = { red: 1, green: 1, blue: 1 };
 const YELLOW = { red: 1, green: 0.97, blue: 0.82 };
+const GREEN = { red: 0.1, green: 0.49, blue: 0.31 }; // profit text — "this is your money"
+const PALE = { red: 0.98, green: 0.93, blue: 0.93 }; // faint tint behind the BID PRICE row
 const CURRENCY = { type: "CURRENCY", pattern: "$#,##0.00" };
 const PERCENT = { type: "PERCENT", pattern: "0.0%" };
 
@@ -268,28 +273,57 @@ const fmtBold = (sheetId: number, sr: number, er: number, sc: number, ec: number
 const fmtBg = (sheetId: number, sr: number, er: number, sc: number, ec: number, backgroundColor: object) => ({
   repeatCell: { range: gr(sheetId, sr, er, sc, ec), cell: { userEnteredFormat: { backgroundColor } }, fields: "userEnteredFormat.backgroundColor" },
 });
+const fmtColor = (sheetId: number, sr: number, er: number, sc: number, ec: number, foregroundColor: object) => ({
+  repeatCell: { range: gr(sheetId, sr, er, sc, ec), cell: { userEnteredFormat: { textFormat: { foregroundColor } } }, fields: "userEnteredFormat.textFormat.foregroundColor" },
+});
+const colWidth = (sheetId: number, startIndex: number, endIndex: number, pixelSize: number) => ({
+  updateDimensionProperties: { range: { sheetId, dimension: "COLUMNS", startIndex, endIndex }, properties: { pixelSize }, fields: "pixelSize" },
+});
+const hideCols = (sheetId: number, idxs: number[]) =>
+  idxs.map((c) => ({ updateDimensionProperties: { range: { sheetId, dimension: "COLUMNS", startIndex: c, endIndex: c + 1 }, properties: { hiddenByUser: true }, fields: "hiddenByUser" } }));
 
 function formattingRequests(): object[] {
   return [
     // Summary banner
     { mergeCells: { range: gr(ID.Summary, 0, 1, 0, 3), mergeType: "MERGE_ALL" } },
-    { repeatCell: { range: gr(ID.Summary, 0, 1, 0, 3), cell: { userEnteredFormat: { backgroundColor: TEAL, textFormat: { bold: true, fontSize: 13, foregroundColor: WHITE }, verticalAlignment: "MIDDLE" } }, fields: "userEnteredFormat(backgroundColor,textFormat,verticalAlignment)" } },
+    { repeatCell: { range: gr(ID.Summary, 0, 1, 0, 3), cell: { userEnteredFormat: { backgroundColor: BRAND, textFormat: { bold: true, fontSize: 15, foregroundColor: WHITE }, verticalAlignment: "MIDDLE" } }, fields: "userEnteredFormat(backgroundColor,textFormat,verticalAlignment)" } },
     { repeatCell: { range: gr(ID.Summary, 1, 2, 0, 1), cell: { userEnteredFormat: { textFormat: { bold: true, fontSize: 12 } } }, fields: "userEnteredFormat.textFormat" } },
     fmtBold(ID.Summary, 4, 5, 0, 3), // Cost/Price header
-    fmtNum(ID.Summary, 5, 15, 1, 3, CURRENCY), // money block
+    fmtNum(ID.Summary, 5, 16, 1, 3, CURRENCY), // money block (incl. Bid per SF)
     fmtNum(ID.Summary, 11, 13, 2, 3, PERCENT), // markup/margin
-    { repeatCell: { range: gr(ID.Summary, 14, 15, 0, 3), cell: { userEnteredFormat: { textFormat: { bold: true, fontSize: 12 } } }, fields: "userEnteredFormat.textFormat" } }, // BID PRICE
+    { repeatCell: { range: gr(ID.Summary, 14, 15, 0, 3), cell: { userEnteredFormat: { textFormat: { bold: true, fontSize: 14 } } }, fields: "userEnteredFormat.textFormat" } }, // BID PRICE
+    fmtBg(ID.Summary, 14, 15, 0, 3, PALE), // faint tint behind the hero BID PRICE row
+    fmtColor(ID.Summary, 10, 11, 2, 3, GREEN), // Elite profit value in green
     fmtBold(ID.Summary, 0, 1, 4, 6), // checks header
+    colWidth(ID.Summary, 0, 1, 300), // wide label column (nothing cut off)
+    colWidth(ID.Summary, 1, 3, 130), // Cost / Price columns
+    ...hideCols(ID.Summary, [4, 5]), // hide the Checks block for a clean proposal (still computes if unhidden)
     // Estimate
-    fmtBold(ID.Estimate, 0, 1, 0, 19),
+    fmtBold(ID.Estimate, 0, 1, 0, 20),
     { updateSheetProperties: { properties: { sheetId: ID.Estimate, gridProperties: { frozenRowCount: 1 } }, fields: "gridProperties.frozenRowCount" } },
     fmtNum(ID.Estimate, 1, ROWS_END, 9, 18, CURRENCY), // J:R money
-    fmtNum(ID.Estimate, 0, 16, 21, 22, CURRENCY), // V bid block
+    fmtNum(ID.Estimate, 0, 17, 21, 22, CURRENCY), // V bid block (incl. Bid $/SF)
     fmtNum(ID.Estimate, 9, 11, 21, 22, PERCENT), // V10:V11 blended %
-    fmtBold(ID.Estimate, 0, 16, 20, 21), // U labels
+    fmtBold(ID.Estimate, 0, 17, 20, 21), // U labels
+    fmtNum(ID.Estimate, 1, ROWS_END, 5, 6, PERCENT), // Waste % column (0.06 → 6%)
+    fmtColor(ID.Estimate, 1, ROWS_END, 17, 18, GREEN), // Line Profit (col R) in green
+    fmtColor(ID.Estimate, 6, 7, 21, 22, GREEN), // bid-block Profit (V7) in green
+    // Hide the Estimate's intermediate "plumbing" columns — formulas stay, the view stays clean.
+    // E=src, G=order raw, H=carton, L=mat cost, M=inst cost, O=mat sell, P=inst sell, T=app helper.
+    ...hideCols(ID.Estimate, [4, 6, 7, 11, 12, 14, 15, 19]),
+    colWidth(ID.Estimate, 0, 1, 120), // Finish code
+    // Description — auto-size to fit the longest description (no more, no less) instead of a fixed width.
+    { autoResizeDimensions: { dimensions: { sheetId: ID.Estimate, dimension: "COLUMNS", startIndex: 1, endIndex: 2 } } },
     // Rates
-    fmtBold(ID.Rates, 0, 1, 0, 17),
-    ...[2, 5, 8, 11, 14].map((c) => fmtBg(ID.Rates, 1, ROWS_END, c, c + 1, YELLOW)), // override columns
+    fmtBold(ID.Rates, 0, 1, 0, 18),
+    { updateSheetProperties: { properties: { sheetId: ID.Rates, gridProperties: { frozenRowCount: 1 } }, fields: "gridProperties.frozenRowCount" } },
+    ...[2, 5, 8, 11, 14].map((c) => fmtBg(ID.Rates, 1, ROWS_END, c, c + 1, YELLOW)), // override columns (editable)
+    fmtNum(ID.Rates, 1, ROWS_END, 7, 10, PERCENT), // Waste columns (default/override/effective) as % (0.06 → 6%)
+    // Hide the raw "default" rate columns — show only the editable override (yellow) + effective result.
+    ...hideCols(ID.Rates, [1, 4, 7, 10, 13]),
+    colWidth(ID.Rates, 0, 1, 120), // Finish code
+    colWidth(ID.Rates, 1, 16, 125), // rate columns — fit the friendly headers
+    colWidth(ID.Rates, 16, 18, 170), // notes + application
   ];
 }
 

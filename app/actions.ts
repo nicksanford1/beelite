@@ -2,10 +2,11 @@
 
 import { db } from "@/lib/db";
 import { getOrCreateDefaultCompany } from "@/lib/company";
-import { uploadPlan, downloadPlan, signedUrl, deletePlanPrefix } from "@/lib/storage";
-import { extractFinishSchedule, extractFinishesFromPages, readFinishesGuarded, extractProjectInfo, type ExtractedFinish, type ProjectInfo } from "@/lib/anthropic";
+import { uploadPlan, downloadPlan, deletePlanPrefix } from "@/lib/storage";
+import { extractFinishSchedule, extractFinishesFromPages, extractProjectInfo, type ExtractedFinish, type FinishAssignment, type ProjectInfo } from "@/lib/anthropic";
 import { scanPdf, extractPages, renderPage } from "@/lib/pdf";
 import { readPageArtifact, ingestDocument } from "@/lib/ingest";
+import { markFinishReadProcessing } from "@/lib/finish-read";
 import { getAuthedClient } from "@/lib/google";
 import { createBidSpreadsheet, updateBidData, readEngineVersion, isCurrentEngine } from "@/lib/sheet-builder";
 import { google } from "googleapis";
@@ -68,48 +69,64 @@ export async function createProject(formData: FormData) {
   redirect("/");
 }
 
-// Upload-first intake: read the cover for project details (fast), create the project + document,
-// and kick off the full page ingest in the background. Returns the metadata for a confirm screen.
-export async function analyzeUpload(formData: FormData): Promise<{ projectId?: string; info?: Partial<ProjectInfo>; error?: string }> {
+// Upload-first intake: the file is posted to this server action, which stores it, reads the cover for
+// project details, and creates the document. The cover read overlaps the upload so the review screen
+// fills in quickly. (Server-side upload works fine here; only Vercel's ~4.5MB serverless body limit
+// would need a browser-direct upload — revisit that at deploy time.)
+export async function analyzeUpload(formData: FormData): Promise<{
+  projectId?: string;
+  documentId?: string;
+  error?: string;
+}> {
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) return { error: "Please choose a PDF." };
   const bytes = Buffer.from(await file.arrayBuffer());
 
-  // fast cover read → project metadata
-  let info: Partial<ProjectInfo> = {};
-  try {
-    const cover = await renderPage(bytes, 1, 1.3, "image/jpeg");
-    info = (await extractProjectInfo(cover.toString("base64"))).info;
-  } catch (e) {
-    console.error("[analyzeUpload] cover read failed:", e);
-  }
-
+  // Fast path: create the project, store the file, create the document — then return immediately so the
+  // review form appears with its (blank) fields. The cover read runs as a SEPARATE call
+  // (readProjectDetails) that streams the details in; the slow finish read is fired by the wizard too.
   const company = await getOrCreateDefaultCompany();
   const project = await db.project.create({
-    data: {
-      companyId: company.id,
-      name: info.name || file.name.replace(/\.pdf$/i, ""),
-      gc: info.contractor || null,
-      location: info.address || null,
-      projectType: info.useType || null,
-      // structured cover-read metadata → real columns (not notes)
-      owner: info.owner || null,
-      architect: info.architect || null,
-      squareFeet: info.squareFeet || null,
-      projectNumber: info.projectNumber || null,
-      issueDate: info.issueDate || null,
-      notes: info.scope || null, // notes = the one-line scope; messy notes are the user's to add
-    },
+    data: { companyId: company.id, name: file.name.replace(/\.pdf$/i, "") },
   });
   const safeName = file.name.replace(/[^\w.\-]+/g, "_");
   const path = `${project.id}/${Date.now()}-${safeName}`;
   await uploadPlan(path, bytes, file.type || "application/pdf");
   const doc = await db.document.create({ data: { projectId: project.id, fileUrl: path, originalFilename: file.name } });
 
-  // full page-by-page ingest in the background — don't block the confirm step
-  void ingestDocument(doc.id, { bytes }).catch((e) => console.error("[analyzeUpload] background ingest failed:", e));
+  return { projectId: project.id, documentId: doc.id };
+}
 
-  return { projectId: project.id, info };
+// Second call: read the cover sheet and fill in the project details. Kept separate from analyzeUpload so
+// the review form shows instantly (blank) and these stream in ~a couple seconds later. Uses Haiku — a
+// cover-sheet extraction is simple, and speed is the point here.
+export async function readProjectDetails(documentId: string): Promise<{ info?: Partial<ProjectInfo>; error?: string }> {
+  const doc = await db.document.findUnique({ where: { id: documentId } });
+  if (!doc) return { error: "Upload not found." };
+  try {
+    const bytes = await downloadPlan(doc.fileUrl);
+    const cover = await renderPage(bytes, 1, 1.8, "image/jpeg");
+    const { info } = await extractProjectInfo(cover.toString("base64"));
+    await db.project.update({
+      where: { id: doc.projectId },
+      data: {
+        name: info.name || undefined,
+        gc: info.contractor || null,
+        location: info.address || null,
+        projectType: info.useType || null,
+        owner: info.owner || null,
+        architect: info.architect || null,
+        squareFeet: info.squareFeet || null,
+        projectNumber: info.projectNumber || null,
+        issueDate: info.issueDate || null,
+        notes: info.scope || null,
+      },
+    });
+    return { info };
+  } catch (e) {
+    console.error("[readProjectDetails] cover read failed:", e);
+    return { error: "Couldn't read the cover sheet — fill the details in manually." };
+  }
 }
 
 // Save the user's confirmed/edited project details, then go to the project.
@@ -129,21 +146,21 @@ export async function confirmProject(projectId: string, formData: FormData) {
     },
   });
 
-  // Create the bid's Google Sheet up front so the estimate is synced from the start.
-  // Best-effort: if Google isn't connected (or the call fails), the estimate is still
-  // created and the user syncs later from the estimate screen. syncBidToSheet never throws.
-  await syncBidToSheet(projectId);
-
-  // Auto-start the whole-PDF finish read so it's ready (or close) by the time the user reaches the
-  // Overview. Mark "processing" synchronously; run the read in the background — never block the redirect.
-  const doc = await db.document.findFirst({ where: { projectId }, orderBy: { createdAt: "desc" }, select: { id: true } });
-  if (doc) {
-    await markFinishReadProcessing(doc.id);
-    void runGuardedRead(doc.id).catch((e) => console.error("[confirmProject] auto finish read failed:", e));
-  }
-
+  // The Google Sheet is created in the BACKGROUND so this redirect is instant: the Overview mounts a
+  // SheetSyncRunner that fires /api/sync once if the project has no sheet yet. syncBidToSheet is
+  // idempotent + best-effort, so a missed/duplicate fire is harmless. The finish read was already
+  // kicked off at upload time; the workspace's FinishReadRunner polls for its result.
   revalidatePath("/");
-  redirect(`/projects/${projectId}`);
+  redirect(`/projects/${projectId}?focus=finishes`);
+}
+
+// Save a manually-entered sheet number + title for a plan page (the Plans list is editable so the
+// estimator can fill in labels the AI read left blank).
+export async function savePlanLabel(planSheetId: string, sheet: string, title: string) {
+  await db.planSheet.update({
+    where: { id: planSheetId },
+    data: { sheetNumber: sheet.trim() || null, sheetTitle: title.trim() || null },
+  });
 }
 
 export async function uploadDocument(projectId: string, formData: FormData) {
@@ -248,62 +265,13 @@ export async function passProject(projectId: string, formData: FormData) {
 }
 
 // ── Whole-PDF guarded finish read ────────────────────────────
-// The Extraction attaches to the page-1 PlanSheet; create a stub if ingest hasn't reached it yet.
-async function primarySheet(documentId: string) {
-  const existing = await db.planSheet.findFirst({ where: { documentId }, orderBy: { pageNumber: "asc" } });
-  return (
-    existing ??
-    (await db.planSheet.upsert({
-      where: { documentId_pageNumber: { documentId, pageNumber: 1 } },
-      create: { documentId, pageNumber: 1, sheetType: "untagged" },
-      update: {},
-    }))
-  );
-}
-
-// Mark the read in-progress so Overview/Plans show "Processing" immediately (auto-start case).
-export async function markFinishReadProcessing(documentId: string) {
-  const primary = await primarySheet(documentId);
-  await db.extraction.deleteMany({ where: { planSheet: { documentId, id: { not: primary.id } } } });
-  await db.extraction.upsert({
-    where: { planSheetId: primary.id },
-    create: { planSheetId: primary.id, model: "(reading)", rawOutput: { status: "processing", whole: true }, confidence: [] },
-    update: { model: "(reading)", rawOutput: { status: "processing", whole: true }, corrected: undefined },
-  });
-}
-
-// Run the guarded whole-PDF read and save the 3-state result (or an "error" status). Never throws —
-// a failed read is recorded so the UI can show "Error" + offer Re-read, not hang.
-export async function runGuardedRead(documentId: string) {
-  const doc = await db.document.findUnique({ where: { id: documentId } });
-  if (!doc) return;
-  const primary = await primarySheet(documentId);
-  try {
-    const url = await signedUrl(doc.fileUrl, 900); // Anthropic fetches it — we never download the big file
-    const { result, model } = await readFinishesGuarded(url);
-    const confidence = result.finishes.map((f) => ({ code: f.code, confidence: f.confidence }));
-    const rawOutput = { ...result, whole: true };
-    await db.extraction.upsert({
-      where: { planSheetId: primary.id },
-      create: { planSheetId: primary.id, model, rawOutput, confidence },
-      update: { model, rawOutput, corrected: undefined },
-    });
-  } catch (e) {
-    console.error("[runGuardedRead] failed:", e);
-    const rawOutput = { status: "error", reason: "The finish read failed — try again.", finishes: [], whole: true };
-    await db.extraction.upsert({
-      where: { planSheetId: primary.id },
-      create: { planSheetId: primary.id, model: "(error)", rawOutput, confidence: [] },
-      update: { model: "(error)", rawOutput },
-    });
-  }
-}
-
-// Manual "Read Finishes" / "Re-read" button: run synchronously, then land on /finishes.
+// The read itself (markFinishReadProcessing + runGuardedRead) lives in lib/finish-read.ts so the
+// maxDuration API route can run it as its own request. Manual "Read Finishes" / "Re-read" buttons mark
+// the read "processing" and land on /finishes; the page's FinishReadRunner kicks the route and polls.
 export async function readWholeDoc(documentId: string) {
   const doc = await db.document.findUnique({ where: { id: documentId }, select: { projectId: true } });
   if (!doc) return;
-  await runGuardedRead(documentId);
+  await markFinishReadProcessing(documentId);
   revalidatePath(`/projects/${doc.projectId}/finishes`);
   revalidatePath(`/projects/${doc.projectId}`);
   redirect(`/projects/${doc.projectId}/finishes`);
@@ -330,50 +298,96 @@ export async function rescanDocument(documentId: string) {
 
 // Confirm/correct the reviewed finishes → save ProjectFinish + log the correction on the EXACT extraction.
 // Seeds each finish's rate from the company library (exact code match) → "the ceiling"; no match = needs_rate.
-export async function confirmFinishes(projectId: string, planSheetId: string, finishes: ExtractedFinish[]) {
-  // The correction log is the data engine — NEVER swallow this write. If it fails, fail loudly
-  // so the human's fix is never silently lost.
-  await db.extraction.update({ where: { planSheetId }, data: { corrected: { finishes } } });
-
+export async function confirmFinishes(
+  projectId: string,
+  planSheetId: string,
+  finishes: ExtractedFinish[],
+  assignments: FinishAssignment[]
+) {
   const project = await db.project.findUnique({ where: { id: projectId }, select: { companyId: true } });
   const lib = project
     ? await db.finishLibraryItem.findMany({ where: { companyId: project.companyId }, include: { rate: true } })
     : [];
   const libByCode = new Map(lib.map((l) => [l.code, l]));
 
-  // Merge by code so a re-confirm can't wipe per-bid rates (Codex v5 #3, contract §8 "snapshot, not live"):
-  // existing codes keep their rates (descriptive fields refresh); new codes seed from the library; gone codes drop.
-  const existing = await db.projectFinish.findMany({ where: { projectId } });
-  const existingCodes = new Set(existing.map((e) => e.code));
-  const incomingCodes = new Set(finishes.map((f) => f.code));
+  // Canonicalize before any write. Compatible duplicates collapse; conflicting applications receive
+  // an application suffix. This is a safety net for malformed model output and edited review rows.
+  const unique = new Map<string, ExtractedFinish>();
+  for (const raw of finishes) {
+    let code = raw.code.trim();
+    if (!code) continue;
+    const previous = unique.get(code);
+    if (previous && (previous.unit !== raw.unit || previous.application !== raw.application)) {
+      const suffix = String(raw.application ?? raw.unit ?? "other").toUpperCase().replace(/[^A-Z0-9]+/g, "-");
+      code = `${code}-${suffix}`;
+    }
+    const current = unique.get(code);
+    if (!current || raw.confidence > current.confidence) unique.set(code, { ...raw, code });
+  }
+  const definitions = [...unique.values()];
+  const codes = definitions.map((f) => f.code);
 
-  await db.projectFinish.deleteMany({ where: { projectId, code: { notIn: [...incomingCodes] } } });
+  await db.$transaction(async (tx) => {
+    await tx.extraction.update({ where: { planSheetId }, data: { corrected: { finishes: definitions, assignments } } });
+    await tx.finishAssignment.deleteMany({ where: { projectId } });
+    await tx.projectFinish.deleteMany({
+      where: { projectId, code: { notIn: codes.length ? codes : ["__none__"] } },
+    });
 
-  await Promise.all(
-    finishes.map((f) => {
-      const desc = { type: f.type, description: f.description ?? "", unit: f.unit, category: f.category, inScope: f.includedInFlooringScope };
-      if (existingCodes.has(f.code)) {
-        // keep rate fields untouched; only refresh the descriptive columns
-        return db.projectFinish.update({ where: { projectId_code: { projectId, code: f.code } }, data: desc });
-      }
-      const r = libByCode.get(f.code)?.rate;
-      const seed = r
+    const finishIds = new Map<string, string>();
+    for (const f of definitions) {
+      const desc = {
+        type: f.type,
+        description: f.description ?? "",
+        unit: f.unit,
+        category: f.category,
+        application: f.application ?? "other",
+        inScope: f.includedInFlooringScope,
+      };
+      const library = libByCode.get(f.code);
+      const rate = library?.rate;
+      const seed = rate
         ? {
-            materialUnitCost: r.materialUnitCost,
-            installRate: r.installRate,
-            wastePct: r.wastePct,
-            cartonSize: r.cartonSize,
-            materialSource: r.materialSource,
+            materialUnitCost: rate.materialUnitCost,
+            installRate: rate.installRate,
+            wastePct: rate.wastePct,
+            cartonSize: rate.cartonSize,
+            materialSource: rate.materialSource,
             rateStatus: "seeded",
-            libraryItemId: libByCode.get(f.code)!.id,
+            libraryItemId: library!.id,
           }
         : { rateStatus: "needs_rate" };
-      return db.projectFinish.create({ data: { projectId, code: f.code, ...desc, ...seed } });
-    })
-  );
+      const saved = await tx.projectFinish.upsert({
+        where: { projectId_code: { projectId, code: f.code } },
+        create: { projectId, code: f.code, ...desc, ...seed },
+        update: desc,
+      });
+      finishIds.set(f.code, saved.id);
+    }
 
+    const assignmentRows = assignments.flatMap((a) => {
+      const finishId = finishIds.get(a.finishCode);
+      return finishId
+        ? [{
+            projectId,
+            finishId,
+            level: a.level ?? null,
+            roomNumber: a.roomNumber ?? null,
+            roomName: a.roomName ?? null,
+            sourceSheet: a.sourcePage ?? null,
+            sourceText: a.sourceText ?? null,
+            confidence: a.confidence,
+            needsReview: a.needsReview,
+            notes: a.notes ?? null,
+          }]
+        : [];
+    });
+    if (assignmentRows.length) await tx.finishAssignment.createMany({ data: assignmentRows });
+  });
+
+  await syncBidToSheet(projectId);
   revalidatePath(`/projects/${projectId}`);
-  redirect(`/projects/${projectId}`);
+  redirect(`/projects/${projectId}?focus=pricing`);
 }
 
 type RateInput = {
@@ -501,6 +515,47 @@ export async function replaceTakeoff(projectId: string, rows: TakeoffInput[]) {
   redirect(`/projects/${projectId}/estimate`);
 }
 
+// ── Merged rate + total takeoff (the single-scroll Pricing block) ─────────────
+// One row per in-scope finish carries BOTH its rate AND its one total quantity. We write the rate
+// fields onto the finish and collapse takeoff to a single approved line per finish (area "—"), which
+// is all computeBid reads (estimate.ts: sum approved qty per code). No redirect — the scroll workspace
+// saves in place and revalidates so the live bid + line costs refresh under the editor.
+type PricingInput = RateFields & { id: string; code: string; unit: string; totalQty: number };
+
+export async function savePricing(projectId: string, rows: PricingInput[], toLibrary = false) {
+  await Promise.all(
+    rows.map((r) => {
+      const { materialUnitCost, installRate, wastePct, cartonSize, materialSource } = normalizeRate(r);
+      return db.projectFinish.update({
+        where: { id: r.id },
+        data: { materialUnitCost, installRate, wastePct, cartonSize, materialSource, rateStatus: "manual" },
+      });
+    })
+  );
+
+  await db.takeoffLine.deleteMany({ where: { projectId } });
+  const lines = rows.filter((r) => r.code && r.totalQty > 0);
+  if (lines.length) {
+    await db.takeoffLine.createMany({
+      data: lines.map((r) => ({
+        projectId,
+        sheet: null,
+        area: "—",
+        finishCode: r.code,
+        qty: r.totalQty,
+        unit: r.unit || "SF",
+        status: "approved",
+      })),
+    });
+  }
+
+  if (toLibrary) await pushBidRatesToLibrary(projectId);
+  // Push the new quantities + rates into the bid's hidden App_* tabs so the Sheet recalculates as the
+  // estimator works. Best-effort (syncBidToSheet never throws); the in-app preview is already updated.
+  await syncBidToSheet(projectId);
+  revalidatePath(`/projects/${projectId}`);
+}
+
 export async function deleteProject(projectId: string) {
   // Remove stored objects (PDFs + page images) first — DB cascade alone leaks them. Best-effort.
   try {
@@ -577,6 +632,7 @@ export async function syncBidToSheet(
     where: { id: projectId },
     include: {
       finishes: { orderBy: { code: "asc" } },
+      finishAssignments: { include: { finish: true }, orderBy: [{ sourceSheet: "asc" }, { roomNumber: "asc" }] },
       takeoff: { orderBy: { area: "asc" } },
       scopeItems: { orderBy: { label: "asc" } },
       settings: true,
@@ -624,4 +680,3 @@ export async function syncBidToSheet(
     return { ok: false, error: "Couldn't sync to Google Sheets. Try reconnecting Google." };
   }
 }
-

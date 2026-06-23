@@ -1,26 +1,31 @@
 :root {
   color-scheme: dark;
-  /* "Measured worktable" after dark — blueprint precision on a dark drafting board. */
-  --bg: #0d1620; /* deep blueprint navy-black */
-  --surface: #16222e; /* panels / cards */
-  --surface-2: #1e2d3b; /* hover / raised */
-  --text: #e6ecf2; /* light drafting ink */
-  --muted: #93a3b4;
-  --border: #2b3a49;
-  --border-strong: #3c4f61;
-  --primary: #3f74ab; /* measured blueprint blue — primary actions (lifted for dark contrast) */
-  --primary-hover: #4f86bf;
-  --primary-soft: #1c2c3c;
+  /* "Measured worktable" in daylight — ink on warm paper, surveyor's marks for the money. */
+  --bg: #101216; /* near-black page (Elite) — white cards laid on it */
+  --bg-ink: #e8eaef; /* light text for elements sitting directly on the dark page */
+  --bg-muted: #9aa3b0; /* light secondary text on the dark page */
+  --surface: #181b21; /* dark card / panel */
+  --surface-2: #20242c; /* hover / raised */
+  --text: #e6e8ec; /* light text on dark */
+  --muted: #98a0ac; /* light secondary text */
+  --border: #282d36; /* subtle border on dark */
+  --border-strong: #3a414c;
+  --primary: #ed1c24; /* Elite red — primary actions */
+  --primary-hover: #ff2e35;
+  --primary-soft: #2a1416; /* dark red chip / badge fill */
   --primary-ink: #ffffff;
-  --marking: #f06a3f; /* surveyor's marking orange — the money + where you are */
-  --marking-hover: #ff7d52;
-  --marking-soft: #3a2117; /* dark warm tint */
-  --blueprint: #5b9bd5; /* measured blue — completed stages */
-  --blueprint-soft: #1a2a3a;
-  --gold: #e0b341; /* needs-review / mid-pipeline */
-  --green: #46c28a; /* ready / synced */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.45);
+  --marking: #ed1c24; /* Elite red — the money + where you are */
+  --marking-hover: #ff2e35;
+  --marking-soft: #2a1416; /* dark red tint */
+  --blueprint: #ff4046; /* brighter Elite red — finish codes on dark */
+  --blueprint-soft: #2a1416;
+  --gold: #d9a942; /* needs-review (brightened for dark) */
+  --green: #4cc38a; /* ready / synced (brightened for dark) */
+  --ink: var(--text); /* alias — legacy tooltip refs */
+  --line: var(--border); /* alias — legacy tooltip refs */
+  --ok: var(--green); /* alias — lead-triage refs */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.55);
   --radius: 10px;
   --font-display: var(--font-body); /* headers: Plex Sans, heavy + tight */
 }
@@ -47,6 +52,27 @@ body {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/* ── Dark page: text that sits directly ON the page background is light. White-card content keeps
+   the default dark --text (cards are white), so only page-level headings/metas need flipping. ── */
+.page-title,
+.detail-title,
+.section-title,
+.brand-name,
+.dash-top h1 {
+  color: var(--bg-ink);
+}
+.page-count,
+.detail-meta,
+.hint,
+.brand-sub,
+.dash-sub {
+  color: var(--bg-muted);
+}
+/* …but where .detail-meta is reused inside a white card (empty states), keep it dark */
+.empty .detail-meta {
+  color: var(--muted);
 }
 
 .wrap {
@@ -290,7 +316,7 @@ a.card:hover {
 .field textarea:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.14);
+  box-shadow: 0 0 0 4px rgba(237, 28, 36, 0.16);
 }
 .field input[type="file"] {
   padding: 10px 14px;
@@ -459,6 +485,58 @@ a.card:hover {
   min-width: 0;
 }
 
+/* ── Single-scroll workspace: the whole bid as one column of stacked blocks ──
+   The rail tick for the block you're scrolled into lights Elite red with a soft halo — the one
+   "you are here" mark on the measuring rule. */
+.rule-step .rule-tick { transition: box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease; }
+.rule-step[aria-current="true"] { background: var(--bg); }
+.rule-step[aria-current="true"] .rule-tick {
+  background: var(--marking);
+  border-color: var(--marking);
+  color: #fff;
+  box-shadow: 0 0 0 4px var(--marking-soft);
+}
+.rule-step[aria-current="true"] .rule-label { color: var(--text); }
+
+.flow { max-width: 1080px; }
+.flow-section { scroll-margin-top: 22px; padding: 30px 0 36px; border-top: 1px solid var(--border); }
+.flow-section:first-of-type { border-top: none; padding-top: 4px; }
+.flow-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--bg-muted);
+  margin-bottom: 7px;
+}
+.flow-eyebrow .flow-rule { flex: 1; height: 1px; background: var(--border); }
+.flow-h {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 23px;
+  letter-spacing: -0.02em;
+  color: var(--bg-ink);
+  margin: 0;
+}
+.flow-sub { color: var(--bg-muted); font-size: 14.5px; margin: 5px 0 18px; max-width: 660px; }
+
+/* number cell with a $ prefix or % suffix — the symbol lives inside the field border */
+.cell-affix { display: inline-flex; align-items: center; gap: 1px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 0 8px; }
+.cell-affix:focus-within { border-color: var(--border-strong); }
+.cell-affix > .affix-sym { color: var(--muted); font-size: 13px; flex: none; }
+.cell-affix > input { font: inherit; font-size: 14px; padding: 6px 2px; border: none; background: transparent; color: var(--text); width: 60px; text-align: right; outline: none; -moz-appearance: textfield; }
+.cell-affix > input::-webkit-outer-spin-button,
+.cell-affix > input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.cell-affix[data-disabled="true"] { opacity: 0.4; }
+
+/* compact project header above the first block */
+.flow-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
+.flow-top-name { font-family: var(--font-display), sans-serif; font-weight: 700; font-size: 26px; letter-spacing: -0.02em; color: var(--bg-ink); line-height: 1.15; }
+.flow-top-meta { font-size: 13.5px; color: var(--bg-muted); margin-top: 3px; }
+
 /* collapse the rail for a wider, clearer plan view */
 .ws-collapsed { grid-template-columns: 1fr; }
 .ws-collapsed .ws-rail { display: none; }
@@ -476,6 +554,45 @@ a.card:hover {
   margin-bottom: 18px;
 }
 .ws-toggle:hover { color: var(--text); border-color: #c3cad2; }
+
+/* ── Focused stage view (Plans/Finishes/Rates/Takeoff — full width, no rail) ── */
+.ws-focus {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 22px 40px 96px;
+  min-width: 0;
+}
+.ws-backbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 16px 8px 12px;
+  margin-bottom: 22px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+.ws-backbar:hover {
+  border-color: var(--marking);
+  color: var(--marking);
+  transform: translateX(-2px);
+}
+.ws-backbar-arrow { font-size: 20px; line-height: 1; margin-top: -1px; }
+.ws-backbar-sub {
+  color: var(--muted);
+  font-weight: 500;
+  margin-left: 6px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+@media (max-width: 880px) {
+  .ws-focus { padding: 18px 18px 80px; }
+}
 
 /* rail collapses to a top bar on narrow viewports */
 @media (max-width: 880px) {
@@ -542,7 +659,7 @@ a.card:hover {
 .filter-field select:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.14);
+  box-shadow: 0 0 0 4px rgba(237, 28, 36, 0.16);
 }
 .filters .grow { flex: 1; min-width: 220px; }
 .filters .grow input { width: 100%; }
@@ -669,7 +786,7 @@ a.card:hover {
   border: 1px solid var(--line, #3a3a3a);
   border-radius: 8px;
   padding: 10px 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-md);
 }
 .ptable td.desc:hover .desc-tip { display: block; }
 .code-chip {
@@ -691,7 +808,7 @@ a.card:hover {
 
 /* ── Lead triage (per-row save / hide) ──────────── */
 .ptable tr[data-lead="saved"] { background: var(--marking-soft); }
-.ptable tr[data-lead="saved"]:hover { background: #47291c; }
+.ptable tr[data-lead="saved"]:hover { background: #f6e2d8; }
 .ptable tr[data-lead="downloaded"] { background: rgba(107, 191, 115, 0.08); }
 .ptable tr[data-lead="downloaded"]:hover { background: rgba(107, 191, 115, 0.16); }
 .ptable tr[data-lead="dismissed"] { opacity: 0.5; }
@@ -755,7 +872,7 @@ a.card:hover {
 .btn-mini.copy { font-weight: 600; }
 .btn-mini.copy:hover { background: var(--surface-2); border-color: var(--border-strong); }
 .bulk-sep { width: 1px; align-self: stretch; background: var(--border, #333); margin: 0 4px; }
-.btn-mini.hide:hover { background: #3a1f1f; border-color: #7a4a4a; color: #f0a0a0; }
+.btn-mini.hide:hover { background: #fbe9e7; border-color: #e8b4ac; color: #b23120; }
 .btn-mini.reset { padding: 5px 8px; color: var(--muted); }
 .btn-mini.reset:hover { background: var(--bg); color: var(--text); }
 .lead-badge {
@@ -788,7 +905,7 @@ a.card:hover {
 .dash { display: grid; grid-template-columns: 234px 1fr; min-height: 100vh; }
 
 .dash-side {
-  background: #0a121b; border-right: 1px solid var(--border);
+  background: var(--surface); border-right: 1px solid var(--border);
   padding: 20px 14px; display: flex; flex-direction: column;
   position: sticky; top: 0; height: 100vh;
 }
@@ -861,7 +978,7 @@ a.card:hover {
 .est-steps li[data-state="active"] { background: var(--surface); border-color: var(--border); }
 .est-step-num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; flex: none; border: 1px solid var(--border); color: var(--muted); font-family: var(--font-mono); }
 .est-steps li[data-state="active"] .est-step-num { background: var(--marking); border-color: var(--marking); color: #fff; }
-.est-steps li[data-state="done"] .est-step-num { background: var(--green); border-color: var(--green); color: #06281b; }
+.est-steps li[data-state="done"] .est-step-num { background: var(--green); border-color: var(--green); color: #fff; }
 .est-step-text { display: flex; flex-direction: column; line-height: 1.3; }
 .est-step-label { font-size: 14px; font-weight: 600; color: var(--text); }
 .est-steps li[data-state="todo"] .est-step-label { color: var(--muted); font-weight: 500; }
@@ -958,7 +1075,7 @@ a.card:hover {
 .ov-stepper > li { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 90px; }
 .ov-step-tick { width: 22px; height: 22px; flex: 0 0 auto; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; border: 1.5px solid var(--border-strong, var(--border)); color: var(--muted); font-family: var(--font-mono, monospace); }
 .ov-step-label { font-size: 12.5px; color: var(--muted); font-weight: 500; }
-.ov-stepper > li[data-state="done"] .ov-step-tick { background: var(--green, #46c28a); border-color: var(--green, #46c28a); color: #08120d; }
+.ov-stepper > li[data-state="done"] .ov-step-tick { background: var(--green, #46c28a); border-color: var(--green, #46c28a); color: #fff; }
 .ov-stepper > li[data-state="done"] .ov-step-label { color: var(--text); }
 .ov-stepper > li[data-state="active"] .ov-step-tick { border-color: var(--marking, #e0b341); color: var(--marking, #e0b341); }
 .ov-stepper > li[data-state="active"] .ov-step-label { color: var(--text); font-weight: 600; }

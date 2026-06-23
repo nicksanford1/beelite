@@ -16,10 +16,10 @@ const bid: BidInput = {
   bidDate: new Date("2026-06-20"),
   notes: "",
   finishes: [
-    { code: "LVT-1", type: "LVT", description: "Luxury vinyl tile", unit: "SF", category: "floor", inScope: true, materialUnitCost: 2.85, installRate: 1.55, wastePct: 0.08, cartonSize: 30, materialSource: "elite_furnishes" },
-    { code: "CPT-1", type: "Carpet tile", description: "Office carpet tile", unit: "SF", category: "floor", inScope: true, materialUnitCost: 3.2, installRate: 0.95, wastePct: 0.06, cartonSize: 48, materialSource: "elite_furnishes" },
-    { code: "RB-1", type: "Rubber base", description: '4" rubber base', unit: "LF", category: "base", inScope: true, materialUnitCost: 0.92, installRate: 1.1, wastePct: 0.05, cartonSize: 100, materialSource: "elite_furnishes" },
-    { code: "PT-2", type: "Paint", description: "Wall paint", unit: "--", category: "wall", inScope: false, materialUnitCost: 0, installRate: 0, wastePct: 0, cartonSize: null, materialSource: "elite_furnishes" },
+    { code: "LVT-1", application: "floor", type: "LVT", description: "Luxury vinyl tile", unit: "SF", category: "floor", inScope: true, materialUnitCost: 2.85, installRate: 1.55, wastePct: 0.08, cartonSize: 30, materialSource: "elite_furnishes" },
+    { code: "CPT-1", application: "floor", type: "Carpet tile", description: "Office carpet tile", unit: "SF", category: "floor", inScope: true, materialUnitCost: 3.2, installRate: 0.95, wastePct: 0.06, cartonSize: 48, materialSource: "elite_furnishes" },
+    { code: "RB-1", application: "base", type: "Rubber base", description: '4" rubber base', unit: "LF", category: "base", inScope: true, materialUnitCost: 0.92, installRate: 1.1, wastePct: 0.05, cartonSize: 100, materialSource: "elite_furnishes" },
+    { code: "PT-2", application: "other", type: "Paint", description: "Wall paint", unit: "--", category: "wall", inScope: false, materialUnitCost: 0, installRate: 0, wastePct: 0, cartonSize: null, materialSource: "elite_furnishes" },
   ],
   takeoff: [
     { sheet: "A101", area: "Rooms 101-108", finishCode: "LVT-1", qty: 1250, unit: "SF", status: "approved" },

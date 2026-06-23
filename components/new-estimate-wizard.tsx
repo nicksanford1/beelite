@@ -2,8 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useFormStatus } from "react-dom";
-import { analyzeUpload, confirmProject } from "@/app/actions";
-import type { ProjectInfo } from "@/lib/anthropic";
+import { analyzeUpload, readProjectDetails, confirmProject } from "@/app/actions";
 
 const STEPS = [
   { label: "Upload Plans", sub: "Add the plan PDF" },
@@ -11,10 +10,16 @@ const STEPS = [
   { label: "Create", sub: "Start the estimate + Sheet" },
 ];
 
-function SubmitButton() {
+type Form = {
+  name: string; gc: string; bidDate: string; location: string;
+  architect: string; projectType: string; estimator: string; notes: string;
+};
+const BLANK: Form = { name: "", gc: "", bidDate: "", location: "", architect: "", projectType: "", estimator: "Nick", notes: "" };
+
+function SubmitButton({ ready }: { ready: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <button type="submit" className="btn btn-primary" disabled={pending}>
+    <button type="submit" className="btn btn-primary" disabled={pending || !ready}>
       {pending ? "Creating estimate + Sheet…" : "Create estimate"}
     </button>
   );
@@ -22,41 +27,74 @@ function SubmitButton() {
 
 export function NewEstimateWizard() {
   const [stage, setStage] = useState<"upload" | "review">("upload");
-  const [loading, setLoading] = useState(false);
+  const [reading, setReading] = useState(false); // cover read in flight (details filling in)
   const [projectId, setProjectId] = useState<string | null>(null);
-  const [info, setInfo] = useState<Partial<ProjectInfo>>({});
+  const [form, setForm] = useState<Form>(BLANK);
   const [fileName, setFileName] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [, start] = useTransition();
+
+  const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
     setErr(null);
-    // Shift straight to Review Details and stream the details in as the read finishes.
+    setForm({ ...BLANK, name: file.name.replace(/\.pdf$/i, "") }); // show the columns immediately, blank
     setStage("review");
-    setLoading(true);
+    setReading(true);
+
     const fd = new FormData();
     fd.append("file", file);
     start(async () => {
-      const res = await analyzeUpload(fd);
-      if (res.error || !res.projectId) {
-        setErr(res.error ?? "Couldn't read that PDF. Try another file.");
+      try {
+        const res = await analyzeUpload(fd);
+        if (res.error || !res.projectId) {
+          setErr(res.error ?? "Couldn't read that PDF. Try another file.");
+          setStage("upload");
+          setReading(false);
+          return;
+        }
+        setProjectId(res.projectId);
+
+        if (res.documentId) {
+          const doc = encodeURIComponent(res.documentId);
+          // Background jobs: page ingest (Plans viewer) + the slow whole-doc finish read.
+          void fetch(`/api/ingest?doc=${doc}`).catch((e) => console.error("[wizard] ingest failed:", e));
+          void fetch(`/api/read-finishes?doc=${doc}`).catch((e) => console.error("[wizard] finish-read failed:", e));
+          // Second call: the fast cover read fills the detail fields in place.
+          readProjectDetails(res.documentId)
+            .then((r) => {
+              if (r.info) {
+                const i = r.info;
+                setForm((f) => ({
+                  ...f,
+                  name: i.name || f.name, // never let an empty read wipe the filename fallback
+                  gc: i.contractor || f.gc,
+                  location: i.address || f.location,
+                  architect: i.architect || f.architect,
+                  projectType: i.useType || f.projectType,
+                  notes: i.scope || f.notes,
+                }));
+              }
+            })
+            .catch((e) => console.error("[wizard] details read failed:", e))
+            .finally(() => setReading(false));
+        } else {
+          setReading(false);
+        }
+      } catch (e) {
+        console.error("[wizard] upload failed:", e);
+        setErr("The upload didn't go through. Try the PDF again.");
         setStage("upload");
-        setLoading(false);
-        return;
+        setReading(false);
       }
-      setProjectId(res.projectId);
-      setInfo(res.info ?? {});
-      setLoading(false);
     });
   };
 
   const activeIdx = stage === "upload" ? 0 : 1;
-  // Structured metadata (owner, sqft, project #, issue date) is persisted to its own columns now —
-  // notes is just the one-line scope, left for the user to flesh out.
-  const defaultNotes = info.scope ?? "";
 
   return (
     <div className="est-wizard">
@@ -99,77 +137,59 @@ export function NewEstimateWizard() {
           <form action={confirmProject.bind(null, projectId!)}>
             <div className="est-review-head">
               <h2 className="est-h">Review project details</h2>
-              {loading ? (
-                <span className="est-reading"><span className="est-dot" /> Reading cover sheet… <span className="est-muted">{fileName}</span></span>
+              {reading ? (
+                <span className="est-reading">Reading cover sheet… <span className="est-muted">{fileName}</span></span>
               ) : (
                 <span className="est-read-done">✓ Pulled from the cover sheet — fix anything that&apos;s off</span>
               )}
             </div>
 
-            <div className={`est-grid${loading ? " est-grid-loading" : ""}`}>
-              <Field cls="est-col-2" i={0} loading={loading}>
+            <div className="est-grid">
+              <div className="est-field est-col-2">
                 <label>Project name <span className="est-req">*</span></label>
-                <input name="name" required defaultValue={info.name ?? ""} />
-              </Field>
-              <Field i={1} loading={loading}>
+                <input name="name" required value={form.name} onChange={set("name")} />
+              </div>
+              <div className="est-field">
                 <label>GC / Customer</label>
-                <input name="gc" defaultValue={info.contractor ?? ""} placeholder="Often not on the cover" />
-              </Field>
-              <Field i={2} loading={loading}>
+                <input name="gc" value={form.gc} onChange={set("gc")} placeholder="Often not on the cover" />
+              </div>
+              <div className="est-field">
                 <label>Bid due date</label>
-                <input name="bidDate" type="date" />
-              </Field>
-              <Field i={3} loading={loading}>
+                <input name="bidDate" type="date" value={form.bidDate} onChange={set("bidDate")} />
+              </div>
+              <div className="est-field">
                 <label>Location / address</label>
-                <input name="location" defaultValue={info.address ?? ""} />
-              </Field>
-              <Field i={4} loading={loading}>
+                <input name="location" value={form.location} onChange={set("location")} />
+              </div>
+              <div className="est-field">
                 <label>Architect</label>
-                <input name="architect" defaultValue={info.architect ?? ""} placeholder="From the cover sheet" />
-              </Field>
-              <Field i={5} loading={loading}>
+                <input name="architect" value={form.architect} onChange={set("architect")} placeholder="From the cover sheet" />
+              </div>
+              <div className="est-field">
                 <label>Project type</label>
-                <input name="projectType" defaultValue={info.useType ?? ""} placeholder="e.g. Office TI" />
-              </Field>
-              <Field i={6} loading={loading}>
+                <input name="projectType" value={form.projectType} onChange={set("projectType")} placeholder="e.g. Office TI" />
+              </div>
+              <div className="est-field">
                 <label>Estimator</label>
-                <input name="estimator" defaultValue="Nick" />
-              </Field>
-              <Field cls="est-col-2" i={7} loading={loading}>
+                <input name="estimator" value={form.estimator} onChange={set("estimator")} />
+              </div>
+              <div className="est-field est-col-2">
                 <label>Notes</label>
-                <textarea name="notes" defaultValue={defaultNotes} rows={3} />
-              </Field>
+                <textarea name="notes" value={form.notes} onChange={set("notes")} rows={3} />
+              </div>
             </div>
 
             {err && <p className="est-err">⚠ {err}</p>}
 
             <div className="est-actions">
-              <button type="button" className="btn" onClick={() => { setStage("upload"); setLoading(false); }}>
+              <button type="button" className="btn" onClick={() => { setStage("upload"); setReading(false); }}>
                 Back
               </button>
-              <SubmitButton />
+              <SubmitButton ready={!!projectId} />
             </div>
           </form>
         )}
       </div>
-    </div>
-  );
-}
-
-// One form field. While the read is in flight it shows a shimmer; when data lands it
-// fades/slides in (staggered by `i`) so the details visibly "fill in".
-function Field({ children, cls = "", i, loading }: { children: React.ReactNode; cls?: string; i: number; loading: boolean }) {
-  if (loading) {
-    return (
-      <div className={`est-field est-skel ${cls}`}>
-        <div className="est-skel-label" />
-        <div className="est-skel-input" />
-      </div>
-    );
-  }
-  return (
-    <div className={`est-field est-fieldin ${cls}`} style={{ animationDelay: `${i * 70}ms` }}>
-      {children}
     </div>
   );
 }

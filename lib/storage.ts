@@ -73,3 +73,14 @@ export async function signedUrl(path: string, expiresInSeconds = 3600) {
   if (error) throw error;
   return data.signedUrl;
 }
+
+/**
+ * Server-minted token so the browser can upload a plan straight to storage. This bypasses the Vercel
+ * serverless request-body limit (~4.5MB) a server-action upload would hit — the big file never passes
+ * through the app process. The browser finishes it with supabase.storage.uploadToSignedUrl(path, token, file).
+ */
+export async function createSignedUploadUrl(path: string): Promise<{ path: string; token: string }> {
+  const { data, error } = await supabaseAdmin().storage.from(PLANS_BUCKET).createSignedUploadUrl(path);
+  if (error) throw error;
+  return { path: data.path, token: data.token };
+}

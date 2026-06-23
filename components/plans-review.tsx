@@ -1,13 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useTransition } from "react";
+import { savePlanLabel } from "@/app/actions";
 
 export type PlanPageView = {
+  id: string; // PlanSheet id — so the editable Sheet/Title can be saved
   pageNumber: number;
   imageUrl: string | null;
   sheet: string; // sheet number from the title block, e.g. "A3.1" ("" if none read yet)
   title: string; // sheet title, e.g. "INTERIOR DETAILS"
   isEvidence: boolean;
+};
+
+const editCell: React.CSSProperties = {
+  font: "inherit", fontSize: "inherit", width: "100%", padding: "4px 6px",
+  border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)", color: "var(--text)",
 };
 
 // Lightweight plan review: a large preview of the selected page, a labeled thumbnail strip, and an
@@ -16,6 +23,15 @@ export type PlanPageView = {
 export function PlansReview({ pages, initialPage }: { pages: PlanPageView[]; initialPage?: number }) {
   const [sel, setSel] = useState(initialPage ?? pages[0]?.pageNumber ?? 1);
   const [fs, setFs] = useState(false);
+  // Editable Sheet # / Title per page — lets the estimator fill in labels the AI read left blank.
+  const [labels, setLabels] = useState<Record<string, { sheet: string; title: string }>>(
+    () => Object.fromEntries(pages.map((p) => [p.id, { sheet: p.sheet, title: p.title }]))
+  );
+  const [, startSave] = useTransition();
+  const lab = (id: string) => labels[id] ?? { sheet: "", title: "" };
+  const editLabel = (id: string, patch: Partial<{ sheet: string; title: string }>) =>
+    setLabels((m) => ({ ...m, [id]: { ...lab(id), ...patch } }));
+  const saveLabel = (id: string) => { const l = lab(id); startSave(() => savePlanLabel(id, l.sheet, l.title)); };
   const current = pages.find((p) => p.pageNumber === sel) ?? pages[0];
   const idx = pages.findIndex((p) => p.pageNumber === sel);
   const go = (d: number) => {
@@ -117,8 +133,28 @@ export function PlansReview({ pages, initialPage }: { pages: PlanPageView[]; ini
           {pages.map((p) => (
             <tr key={p.pageNumber} className={p.pageNumber === sel ? "pl-row-active" : ""} onClick={() => setSel(p.pageNumber)}>
               <td className="pl-pg">{p.pageNumber}</td>
-              <td className="pl-sheet">{p.sheet || <span className="pl-muted">—</span>}</td>
-              <td>{p.title || <span className="pl-muted">—</span>}</td>
+              <td className="pl-sheet">
+                <input
+                  style={{ ...editCell, maxWidth: 90 }}
+                  value={lab(p.id).sheet}
+                  placeholder="A2.4"
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => editLabel(p.id, { sheet: e.target.value })}
+                  onBlur={() => saveLabel(p.id)}
+                  aria-label={`Sheet number, page ${p.pageNumber}`}
+                />
+              </td>
+              <td>
+                <input
+                  style={editCell}
+                  value={lab(p.id).title}
+                  placeholder="e.g. FINISH SCHEDULE"
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => editLabel(p.id, { title: e.target.value })}
+                  onBlur={() => saveLabel(p.id)}
+                  aria-label={`Title, page ${p.pageNumber}`}
+                />
+              </td>
               <td>{p.isEvidence ? <span className="pl-evi">Used for finish read</span> : <span className="pl-muted">Available</span>}</td>
               <td>{p.imageUrl && <a className="pl-view" href={p.imageUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>View</a>}</td>
             </tr>

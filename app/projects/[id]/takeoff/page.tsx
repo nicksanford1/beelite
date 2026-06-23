@@ -34,7 +34,7 @@ export default async function TakeoffPage({ params }: { params: Promise<{ id: st
         ) : (
           <TakeoffEditor
             projectId={id}
-            finishes={project.finishes.map((f) => ({ code: f.code, unit: f.unit }))}
+            finishes={project.finishes.map((f) => ({ code: f.code, unit: f.unit, application: f.application }))}
             initial={project.takeoff.map((t) => ({
               sheet: t.sheet ?? "",
               area: t.area,

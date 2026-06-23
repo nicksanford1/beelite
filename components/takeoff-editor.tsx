@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { replaceTakeoff } from "@/app/actions";
 
-type Finish = { code: string; unit: string };
+type Finish = { code: string; unit: string; application: string };
 type Row = { sheet: string; area: string; finishCode: string; qty: number; unit: string; status: string };
 
 const cell: React.CSSProperties = { padding: "8px 10px", borderBottom: "1px solid var(--border)" };
@@ -53,7 +53,7 @@ export function TakeoffEditor({
                 <td style={cell}><input style={inp} value={r.area} onChange={(e) => set(i, { area: e.target.value })} placeholder="Rooms 101–108" /></td>
                 <td style={cell}>
                   <select style={{ ...inp, width: 110 }} value={r.finishCode} onChange={(e) => setFinish(i, e.target.value)}>
-                    {finishes.map((f) => <option key={f.code} value={f.code}>{f.code}</option>)}
+                    {finishes.map((f) => <option key={f.code} value={f.code}>{f.code} · {f.application}</option>)}
                   </select>
                 </td>
                 <td style={cell}><input style={{ ...inp, width: 90 }} type="number" step="1" value={r.qty} onChange={(e) => set(i, { qty: parseFloat(e.target.value) || 0 })} /></td>

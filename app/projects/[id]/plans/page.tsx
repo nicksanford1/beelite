@@ -5,6 +5,7 @@ import { readPageArtifact } from "@/lib/ingest";
 import { readWholeDoc, uploadDocument } from "@/app/actions";
 import { ProjectWorkspace } from "@/components/project-workspace";
 import { PlansReview, type PlanPageView } from "@/components/plans-review";
+import { PlansAutoRefresh } from "@/components/plans-auto-refresh";
 import { UploadForm } from "@/components/upload-form";
 import type { SheetLabel } from "@/lib/anthropic";
 
@@ -65,6 +66,7 @@ export default async function PlansPage({ params, searchParams }: { params: Prom
           const label = byPage.get(p.pageNumber);
           const sheet = label?.sheet || p.sheetNumber || "";
           return {
+            id: p.id,
             pageNumber: offset + p.pageNumber,
             imageUrl,
             sheet,
@@ -78,6 +80,8 @@ export default async function PlansPage({ params, searchParams }: { params: Prom
   const pages: PlanPageView[] = pageGroups.flat();
 
   const processing = pages.length === 0;
+  // Only auto-refresh for a freshly uploaded set (pages still rendering in). Old projects don't poll.
+  const recentlyUploaded = primary.createdAt ? Date.now() - new Date(primary.createdAt).getTime() < 10 * 60 * 1000 : false;
   // Deep-link from the Finishes table: ?sheet=A6.1 opens the viewer on that sheet.
   const initialPage = sheetParam
     ? pages.find((p) => p.sheet && p.sheet.toLowerCase() === sheetParam.toLowerCase())?.pageNumber
@@ -85,6 +89,7 @@ export default async function PlansPage({ params, searchParams }: { params: Prom
 
   return (
     <ProjectWorkspace projectId={id} active="plans">
+      {recentlyUploaded && <PlansAutoRefresh count={pages.length} />}
       <div className="page-head">
         <div>
           <h1 className="page-title">Plans</h1>
